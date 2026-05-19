@@ -1,7 +1,10 @@
 import cors from 'cors';
 import express from 'express';
 import cookieParser from 'cookie-parser';
-
+import router from './routes/authRoutes.js';
+import docRouter from './routes/documentRoutes.js';
+import versionRouter from './routes/versionRoutes.js';
+import shareRouter from './routes/shareRoutes.js';
 //express application
 const app = express();
 //middlewares
@@ -14,9 +17,10 @@ app.use(cookieParser());
 
 //routes to handle requests to be written---> app.use()
 // app.use("/auth",router)
-
-
-
+app.use("/auth",router);
+app.use("/documents", docRouter);
+app.use("/versions", versionRouter);
+app.use("/share", shareRouter);
 
 //to handle invalid path
 app.use((req, res, next) => {

@@ -1,11 +1,17 @@
 {
   "dependencies": {
+    "bcrypt": "^6.0.0",
+    "cookie": "^1.1.1",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
+    "google-auth-library": "^10.6.2",
+    "lib0": "^0.2.117",
     "mongoose": "^9.6.2",
-    "socket.io": "^4.8.3"
+    "socket.io": "^4.8.3",
+    "y-websocket": "^3.0.0",
+    "yjs": "^13.6.30"
   },
   "name": "backend",
   "version": "1.0.0",
