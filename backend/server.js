@@ -1,32 +1,21 @@
-import { config } from "dotenv";
+import express from 'express';
+import { config } from 'dotenv';
 import connectDB from './config/db.js';
-import app from './app.js';
-import http from 'http';
-import{ Server } from 'socket.io';
-import documentSocket from './sockets/documentSocket.js';
-
-config();
-
-//connect to db
-connectDB();
+import cors from 'cors';
+// Create an Express application
+const app = express();
+//port number
 const PORT = process.env.PORT || 5000;
 
-//create http server
-const server = http.createServer(app);
-//create socket server
-export const io = new Server(server,{
-  cors: {
-    origin: "*",
-    credentials: true
-  },
-});
+// Connect to the database
+connectDB();
 
-documentSocket(io);
-//start server
+//middleware-->CORS
+app.use(cors());
+//middleware-->JSON parsing
+app.use(express.json());
 
-server.listen(PORT, () => {
+app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
 
-
-export default app;

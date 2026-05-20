@@ -1,17 +1,17 @@
 import cors from 'cors';
-import express from 'express';
+import exp from 'express';
 import cookieParser from 'cookie-parser';
 import router from './routes/authRoutes.js';
 import docRouter from './routes/documentRoutes.js';
 import versionRouter from './routes/versionRoutes.js';
 import shareRouter from './routes/shareRoutes.js';
 //express application
-const app = express();
+const app = exp();
 //middlewares
 //allow cross-origin requests
 app.use(cors());
 //body parser
-app.use(express.json());
+app.use(exp.json());
 //cookie parser
 app.use(cookieParser());
 

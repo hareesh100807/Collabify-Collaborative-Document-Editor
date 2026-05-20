@@ -162,3 +162,21 @@ export const logout = (req, res) => {
   });
   res.status(200).json({ message: 'Logout successful' });
 };
+
+export const getMe= async (req, res) => {
+  try {
+    const user = req.user; // Set by authMiddleware
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    res.status(200).json({
+      id: user._id,
+      username: user.username,
+      email: user.email,
+      profilePic: user.profilePic
+    });
+  } catch (error) {
+    console.error('Error fetching user data:', error);
+    res.status(500).json({ error: 'Server error' });
+  }
+};
