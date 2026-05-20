@@ -1,7 +1,7 @@
 import {useState} from 'react';
 import { useNavigate } from 'react-router-dom';
 import axiosInstance from '../api/axios';
-import {useAuth} from '../context/AuthContext';
+import {useAuth} from '../context/AuthContext.jsx';
 
 const LoginPage = () => {    
     const [email, setEmail] = useState('');
@@ -26,7 +26,7 @@ const LoginPage = () => {
           setLoading(false);
         }
     }
-}
+
 return (
 
   <div className="min-h-screen flex items-center justify-center">
@@ -70,4 +70,5 @@ return (
     </form>
   </div>
 );
+}
 export default LoginPage;

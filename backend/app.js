@@ -8,8 +8,11 @@ import shareRouter from './routes/shareRoutes.js';
 //express application
 const app = exp();
 //middlewares
-//allow cross-origin requests
-app.use(cors());
+// allow cross-origin requests
+app.use(cors({
+  origin: process.env.FRONTEND_URL,
+  credentials: true,
+}));
 //body parser
 app.use(exp.json());
 //cookie parser

@@ -1,14 +1,18 @@
 import {createContext, useState, useContext} from "react";
 import {useEffect} from "react";
-import axiosInstance from "..utils/axios.js";
+import axiosInstance from "../api/axios.js";
 const AuthContext = createContext();
 export const AuthProvider = ({children}) => {
   const [user, setUser] = useState(null);
 
   useEffect(() => {
     const fetchUser = async () => {
-      const response = await axiosInstance.get("/auth/me");
-      setUser(response.data.user);
+      try{
+        const response = await axiosInstance.get("/auth/me");
+        setUser(response.data.payload);
+      } catch (error) {
+        console.error("Error fetching user:", error);
+      }
     };
     fetchUser();
   }, []);
@@ -19,4 +23,5 @@ export const AuthProvider = ({children}) => {
     </AuthContext.Provider>
   );
 };
+export default AuthContext;
 export const useAuth = () => useContext(AuthContext);

@@ -3,7 +3,7 @@ import LoginPage from "../pages/LoginPage";
 import RegisterPage from "../pages/RegisterPage";
 import DashboardPage from "../pages/DashboardPage";
 import ProtectedRoute from "./ProtectedRoutes";
-
+import EditorPage from "../pages/EditorPage";
 const AppRoutes = () => {
   return (
     <BrowserRouter>
@@ -18,6 +18,11 @@ const AppRoutes = () => {
           </ProtectedRoute>
         } />
 
+        <Route path="/document/:id" element={
+          <ProtectedRoute>
+            <EditorPage />
+          </ProtectedRoute>
+        } />
 
       </Routes>
     </BrowserRouter>
