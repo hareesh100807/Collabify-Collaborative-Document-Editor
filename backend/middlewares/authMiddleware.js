@@ -11,6 +11,7 @@ const authMiddleware = async (req, res, next) => {
         }
         //verify token
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        
         //find user by id
         const user = await UserModel.findById(decoded.userId).select("-password");
         //check user is present or not
@@ -19,6 +20,7 @@ const authMiddleware = async (req, res, next) => {
         }
         //attach user to request object
         req.user = user;
+        req.userId = user._id; // Add userId for easier access in controllers
         //call next middleware
         next();
     } catch (error) {
@@ -26,7 +28,5 @@ const authMiddleware = async (req, res, next) => {
         res.status(500).json({ message: "Internal Server Error" });
     }
 }
+
 export default authMiddleware;
-
-
-

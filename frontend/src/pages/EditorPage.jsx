@@ -1,124 +1,242 @@
-import React, { useEffect, useState, useRef } from 'react';
-import ReactQuill from 'react-quill';
-import 'react-quill/dist/quill.snow.css';
-import { useParams, useNavigate } from 'react-router-dom';
-import { io } from 'socket.io-client';
-import { useAuth } from '../context/AuthContext';
+import React, { useEffect, useRef, useState } from "react";
+import ReactQuill from "react-quill-new";
+import "react-quill-new/dist/quill.snow.css";
+import { useNavigate, useParams } from "react-router-dom";
+import { io } from "socket.io-client";
+import { useAuth } from "../context/AuthContext";
+import {addCollaborator} from "../api/documentService.js";
 
 const EditorPage = () => {
   const { id: documentId } = useParams();
-  const { user } = useAuth();
-  const [socket, setSocket] = useState(null);
-  const [documentTitle, setDocumentTitle] = useState('Untitled Document');
-  const quillRef = useRef(null);
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const quillRef = useRef(null);
+  const [socket, setSocket] = useState(null);
+  const [documentTitle, setDocumentTitle] = useState("Untitled Document");
+  const [activeUsers, setActiveUsers] = useState([]);
+  const [saveStatus, setSaveStatus] = useState("Saved");
+  const [typingUser, setTypingUser] = useState("");
+  const [shareEmail, setShareEmail] = useState("");
+  const [shareLoading, setShareLoading] = useState(false);
+  const [shareMessage, setShareMessage] = useState("");
 
-  // 1. Initialize Socket Connection
+  /* SOCKET CONNECTION */
   useEffect(() => {
-    const s = io(import.meta.env.VITE_BACKEND_URL || 'http://localhost:4000', {
+    const s = io(import.meta.env.VITE_BACKEND_URL || "http://localhost:4000", {
       withCredentials: true,
     });
-    setSocket(s);
 
+    setSocket(s);
     return () => {
       s.disconnect();
     };
   }, []);
 
-  // 2. Load Document and Handle Socket Events
+  /*  LOAD DOCUMENT */
   useEffect(() => {
-    if (socket == null || quillRef.current == null) return;
-
-    socket.emit('join-document', documentId);
-
-    socket.once('load-document', (document) => {
-      setDocumentTitle(document.title || 'Untitled Document');
-      const quill = quillRef.current.getEditor();
-      if (document.content && document.content.ops) {
-         quill.setContents(document.content); // If it was saved as delta
-      } else {
-         quill.root.innerHTML = document.content || "";
-      }
+    if (!socket || !quillRef.current) return;
+    const quill = quillRef.current.getEditor();
+    quill.enable(false);
+    socket.emit("join-document", documentId);
+    
+    /*LOAD DOCUMENT*/
+    socket.once("load-document", (document) => {
+      setDocumentTitle(document.title || "Untitled Document");
+      quill.setContents(document.content || { ops: [] });
+      quill.enable(true);
     });
-
-    socket.on('document-not-found', () => {
-       alert("Document not found or access denied.");
-       navigate('/dashboard');
+    
+    /*DOCUMENT NOT FOUND*/
+    socket.on("document-not-found", () => {
+      alert("Document not found");
+      navigate("/dashboard");
     });
-
-    const handler = (delta) => {
-      const quill = quillRef.current.getEditor();
-      quill.updateContents(delta);
+    
+    /*NOT AUTHORIZED*/
+    socket.on("not-authorized", () => {
+      alert("You are not authorized to access this document");
+      navigate("/dashboard");
+    });
+    
+    /*ACTIVE USERS*/
+    socket.on("active-users", (users) => {
+      setActiveUsers(users);
+    });
+    
+    /*RECEIVE CHANGES*/
+    const receiveChangesHandler = (delta) => {
+        quill.updateContents(delta, "silent");
     };
-    socket.on('receive-changes', handler);
+    socket.on("receive-changes", receiveChangesHandler);
 
+    /* TYPING */
+    socket.on("user-typing", (username) => {
+      setTypingUser(username);
+    });
+    socket.on("user-stop-typing", () => {
+      setTypingUser("");
+    });
+
+    // Listen for title updates from other users
+    socket.on("title-updated", (newTitle) => {
+      setDocumentTitle(newTitle);
+    });
+    
     return () => {
-      socket.off('receive-changes', handler);
-      socket.off('load-document');
-      socket.off('document-not-found');
+      socket.off("load-document");
+      socket.off("document-not-found");
+      socket.off("not-authorized");
+      socket.off("active-users");
+      socket.off("receive-changes", receiveChangesHandler);
+      socket.off("user-typing");
+      socket.off("user-stop-typing");
+      socket.off("title-updated");
     };
   }, [socket, documentId, navigate]);
 
-  // 3. Handle Local Text Changes and Send to Socket
+  /*SEND CHANGES */
   useEffect(() => {
-    if (socket == null || quillRef.current == null) return;
-
+    if (!socket || !quillRef.current) return;
     const quill = quillRef.current.getEditor();
-    const handler = (delta, oldDelta, source) => {
-      if (source !== 'user') return;
-      socket.emit('send-changes', delta, documentId);
+    let typingTimeout;
+    const textChangeHandler = ( delta, oldDelta, source ) => {
+      if (source !== "user") return;
+      /*SEND CHANGES*/
+      socket.emit("send-changes", delta, documentId);
+      /* TYPING */
+      socket.emit("typing", { documentId, username: user.username });
+      clearTimeout(typingTimeout);
+      typingTimeout = setTimeout(() => {
+        socket.emit("stop-typing", { documentId, username: user.username });
+      }, 1000);
     };
-
-    quill.on('text-change', handler);
-
+    quill.on("text-change", textChangeHandler);
     return () => {
-      quill.off('text-change', handler);
+      quill.off("text-change", textChangeHandler);
     };
   }, [socket, documentId]);
 
-  // 4. Auto-save periodically
+  /* AUTO SAVE */
   useEffect(() => {
-    if (socket == null || quillRef.current == null) return;
-
+    if (!socket || !quillRef.current) return;
     const interval = setInterval(() => {
       const quill = quillRef.current.getEditor();
-      const content = quill.root.innerHTML; 
-      socket.emit('save-document', { documentId, content, userId: user._id });
+      const content = quill.getContents();
+      setSaveStatus("Saving...");
+      socket.emit("save-document", { documentId, content, title: documentTitle });
+      setTimeout(() => setSaveStatus("Saved"), 500);
     }, 2000);
-
     return () => {
       clearInterval(interval);
     };
-  }, [socket, documentId, user]);
+  }, [socket, documentId, documentTitle]);
+
+  /* HANDLE TITLE CHANGE */
+  const handleTitleChange = (e) => {
+    const newTitle = e.target.value;
+    setDocumentTitle(newTitle);
+  };
+
+  const handleTitleBlur = () => {
+    if (!socket) return;
+    socket.emit("rename-document", { documentId, title: documentTitle });
+  };
+
+  const handleTitleKeyDown = (e) => {
+    if (e.key === "Enter") {
+      e.target.blur();
+    }
+  };
+
+  //document sharing
+  const handleShareDocument = async () => {
+    if(!shareEmail.trim()) return;
+    try{
+      setShareLoading(true);
+      setShareMessage("");
+      const response= await addCollaborator(documentId, shareEmail);
+      setShareMessage(response.message||"Collaborator added");
+      setShareEmail("");
+    }catch(error){
+      setShareMessage(error.response?.data?.message || "Error sharing document");
+    }finally{
+      setShareLoading(false);
+    }
+  };
 
   return (
-    <div className="h-screen flex flex-col bg-gray-50">
+    <div className="h-screen flex flex-col bg-gray-100">
+      {/* HEADER */}
       <div className="bg-white shadow p-4 flex justify-between items-center z-10">
+        {/* LEFT */}
         <div className="flex items-center gap-4">
-          <button 
-            onClick={() => navigate('/dashboard')}
-            className="text-gray-600 hover:text-gray-900 font-medium"
-          >
+          <button onClick={() => navigate("/dashboard")} className="text-gray-600 hover:text-black font-medium">
             ← Back
           </button>
-          <h1 className="text-xl font-bold text-gray-800 truncate px-4 border-l">
-            {documentTitle}
-          </h1>
+          <input
+            type="text"
+            value={documentTitle}
+            onChange={handleTitleChange}
+            onBlur={handleTitleBlur}
+            onKeyDown={handleTitleKeyDown}
+            className="text-xl font-bold text-gray-800 border-l pl-4 bg-transparent outline-none border-b-2 border-transparent focus:border-blue-400 transition-colors"
+            placeholder="Untitled Document"
+          />
         </div>
+
+        {/* RIGHT */}
         <div className="flex items-center gap-4">
-           <div className="text-sm text-green-600 font-medium bg-green-50 px-3 py-1 rounded-full flex items-center gap-2">
-             <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-             Auto-saving
-           </div>
+          {/* TYPING */}
+          {typingUser && (
+            <p className="text-sm text-gray-500 italic">
+              {typingUser} is typing...
+            </p>
+          )}
+          {/* ACTIVE USERS */}
+          {activeUsers.length > 0 && (
+            <div className="flex gap-2">
+              {activeUsers.map((u) => (
+                <div
+                  key={u.socketId}
+                  className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-sm font-medium"
+                >
+                  {u.username}
+                </div>
+              ))}
+            </div>
+          )}
+          {/* AUTO SAVE */}
+          <div className="flex items-center gap-2">
+            <input type="email" placeholder="Collaborator email" value={shareEmail} onChange={(e) => setShareEmail(e.target.value)} 
+            className="border border-gray-300 rounded px-3 py-1 text-sm outline-none" />
+            <button onClick={handleShareDocument} disabled={shareLoading} className="bg-blue-500 text-white px-3 py-1 rounded text-sm font-medium hover:bg-blue-600 disabled:bg-blue-300">
+              {shareLoading? "Sharing...":"Share"}
+            </button>
+          </div>
+          <div className={`px-3 py-1 rounded-full text-sm font-medium flex items-center gap-2 ${
+            saveStatus === "Saving..." 
+              ? "bg-yellow-100 text-yellow-700" 
+              : "bg-green-100 text-green-700"
+          }`}>
+            <span className={`w-2 h-2 rounded-full animate-pulse ${
+              saveStatus === "Saving..." ? "bg-yellow-500" : "bg-green-500"
+            }`} />
+            {saveStatus}
+          </div>
         </div>
       </div>
-
-      <div className="flex-1 overflow-hidden relative">
-        <ReactQuill
-          ref={quillRef}
-          theme="snow"
-          className="h-full bg-white max-w-5xl mx-auto shadow-sm"
-        />
+      {
+        shareMessage && (<div className=" text-sm text-center py-2 bg-gray-200">{shareMessage}</div>)
+      }
+      {/* EDITOR */}
+      <div className="flex-1 overflow-hidden p-6">
+        <div className="max-w-5xl mx-auto bg-white shadow rounded h-full">
+          <ReactQuill
+            ref={quillRef}
+            theme="snow"
+            className="h-full"
+          />
+        </div>
       </div>
     </div>
   );

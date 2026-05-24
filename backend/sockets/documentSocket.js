@@ -6,75 +6,96 @@ import cookie from "cookie";
 import User from "../models/UserModel.js";
 
 const documentSocket = (io) => {
-  io.on("connection",async (socket) => {
-    try{
+  io.on("connection", async (socket) => {
+    try {
       // parse cookies
       const cookies = cookie.parse(socket.handshake.headers.cookie || "");
-      //get token
       const token = cookies.token;
-      if(!token){
+      if (!token) {
         socket.disconnect();
         return;
       }
-      //verify token
+      // verify token
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      //find userId in token
       const userId = decoded.userId;
       const user = await User.findById(userId);
-      if(!user){
+      if (!user) {
         socket.disconnect();
         return;
       }
-      //Attach user to socket
+      // Attach user to socket
       socket.user = user;
-    console.log("User connected:", socket.id);
-    // Join document room
-    socket.on("join-document",async (documentId) => {
+      console.log("User connected:", socket.id, user.username);
+
+      // Join document room
+      socket.on("join-document", async (documentId) => {
         try {
-          // Validate Mongo ID
           if (!mongoose.Types.ObjectId.isValid(documentId)) {
             return;
           }
-          //join room
           socket.join(documentId);
           console.log(`Socket ${socket.id} joined document ${documentId}`);
-          // Find document
+
           const document = await Document.findById(documentId);
           if (!document) {
             socket.emit("document-not-found");
             return;
           }
-
           // Send existing content
-          socket.emit("load-document",document);
+          socket.emit("load-document", document);
         } catch (error) {
-          console.error(error);
+          console.error("join-document error:", error);
         }
-      }
-    );
-    // Receive changes
-    socket.on("send-changes",(delta, documentId) => {
-        // Send to everyone EXCEPT sender
-        socket.to(documentId).emit("receive-changes",delta);
-      }
-    );
-    // Save document
-    socket.on("save-document",async ({ documentId, content,userId }) => {
+      });
+
+      // Receive changes and broadcast to others in the room
+      socket.on("send-changes", (delta, documentId) => {
+        socket.to(documentId).emit("receive-changes", delta);
+      });
+
+      // Save document (content + title)
+      socket.on("save-document", async ({ documentId, content, title }) => {
         try {
-          await Document.findByIdAndUpdate(documentId,{ content });
-          // Save version
-          const version = new Version({documentId, content, editedBy: userId});
-          await version.save();
-          console.log("Document saved");
+          const updateData = { content };
+          if (title !== undefined) {
+            updateData.title = title;
+          }
+          await Document.findByIdAndUpdate(documentId, updateData);
         } catch (error) {
-          console.error(error);
+          console.error("save-document error:", error);
         }
-      }
-    );
-    // Handle disconnect
-    socket.on("disconnect", () => {
-      console.log("User disconnected:", socket.id);
-    });
+      });
+
+      // Rename document
+      socket.on("rename-document", async ({ documentId, title }) => {
+        try {
+          await Document.findByIdAndUpdate(documentId, { title });
+          // Broadcast new title to all other users in the room
+          socket.to(documentId).emit("title-updated", title);
+        } catch (error) {
+          console.error("rename-document error:", error);
+        }
+      });
+
+      // Typing indicators
+      socket.on("typing", ({ documentId, username }) => {
+        socket.to(documentId).emit("user-typing", username);
+      });
+
+      socket.on("stop-typing", ({ documentId }) => {
+        socket.to(documentId).emit("user-stop-typing");
+      });
+
+      // Handle disconnect
+      socket.on("disconnect", () => {
+        console.log("User disconnected:", socket.id);
+      });
+
+    } catch (err) {
+      console.error("Socket auth error:", err.message);
+      socket.disconnect();
+    }
   });
 };
+
 export default documentSocket;

@@ -9,8 +9,7 @@ const DocumentSchema = new Schema({
         default: 'Untitled Document',
     },
     content: {
-        type: String,
-        required: true,
+        type: Schema.Types.Mixed,
         default: '',
     },
     yjsState: {

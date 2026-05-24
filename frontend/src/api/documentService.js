@@ -16,3 +16,16 @@ export const deleteDocument = async (id) => {
   const response = await axiosInstance.delete(`/documents/${id}`);
   return response.data;
 };
+
+//add collaborator
+export const addCollaborator = async (documentId, email) => {
+  const response = await axiosInstance.post(`/share/${documentId}/collaborators`, { email });
+  return response.data;
+}
+
+//remove collaborator
+export const removeCollaborator = async (documentId, email) => {
+  const response = await axiosInstance.post(`/share/${documentId}/collaborators/remove`, { email });
+  return response.data;
+} 
+
