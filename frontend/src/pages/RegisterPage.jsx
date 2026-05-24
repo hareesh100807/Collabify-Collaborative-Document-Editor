@@ -4,7 +4,7 @@ import axiosInstance from "../api/axios";
 import {useAuth} from "../context/AuthContext";
 
 const RegisterPage = () => {
-    const [username, setUsername] = useState('');
+    const [username, setUsername] = useState("");
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
@@ -72,7 +72,7 @@ const RegisterPage = () => {
                     />
                 </div>
                 {/* Submit Button */}
-                <button type="submit" disabled={loading}>
+                <button type="submit" disabled={loading} className="w-full bg-black text-white p-2 rounded">
                     {loading ? 'Registering...' : 'Register'}
                 </button>
             </form>

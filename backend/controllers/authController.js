@@ -1,7 +1,8 @@
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
-import UserModel from '../models/userModel.js';
+import UserModel from '../models/UserModel.js';
 import { OAuth2Client } from 'google-auth-library';
+import fetch from 'node-fetch';
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -100,7 +101,7 @@ export const register = async (req, res) => {
   //generate jwt token
     const token = jwt.sign({ userId: newUser._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
     //send cookie
-    res.cookie('token', token, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax' });
+    res.cookie('token', token, { httpOnly: true, secure: false, sameSite: 'lax', maxAge: 7 * 24 * 60 * 60 * 1000 });
     res.status(201).json({ message: 'User registered successfully', payload: { username: newUser.username, id: newUser._id, email: newUser.email } });
   } catch (error) {
     console.error('Error registering user:', error);
@@ -136,8 +137,9 @@ export const login = async (req, res) => {
     // 5. Send cookie
     res.cookie('token', token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
+      secure: false,
+      sameSite: 'lax',
+      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
     });
     // 6. Response
     res.status(200).json({

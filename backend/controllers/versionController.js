@@ -1,5 +1,5 @@
-import Version from '../models/versionModel.js';
-import Document from '../models/documentModel.js';
+import Version from '../models/VersionModel.js';
+import Document from '../models/DocumentModel.js';
 
 // Get version history for a document
 export const getVersions= async (req, res) => {

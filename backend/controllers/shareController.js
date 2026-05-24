@@ -1,5 +1,5 @@
 import Document from "../models/DocumentModel.js";
-import user from "../models/UserModel.js";
+import User from "../models/UserModel.js";
 
 export const addCollaborator = async (req, res) => {
     try {
@@ -15,7 +15,7 @@ export const addCollaborator = async (req, res) => {
             return res.status(403).json({ message: "Not authorized" });
         }
         //find collaborator by email
-        const collaborator = await user.findOne({ email });
+        const collaborator = await User.findOne({ email });
         if (!collaborator) {
             return res.status(404).json({ message: "User not found" });
         }
@@ -47,7 +47,7 @@ export const removeCollaborator = async (req, res) => {
             return res.status(403).json({ message: "Not authorized" });
         }
         //find collaborator by email
-        const collaborator = await user.findOne({ email });
+        const collaborator = await User.findOne({ email });
         if (!collaborator) {
             return res.status(404).json({ message: "User not found" });
         }

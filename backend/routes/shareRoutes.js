@@ -1,6 +1,6 @@
 import express from "express";
 import {addCollaborator,removeCollaborator} from "../controllers/shareController.js";
-import authMiddleware from "../middleware/authMiddleware.js";
+import authMiddleware from "../middlewares/authMiddleware.js";
 
 const shareRouter = express.Router();
 

@@ -4,7 +4,7 @@ import authMiddleware from '../middlewares/authMiddleware.js';
 const versionRouter = express.Router();
 
 // Get version history for a document
-versionRouter.get('/:id', authMiddleware, getVersions);
+versionRouter.get('/:documentId', authMiddleware, getVersions);
 
 // Restore a specific version
 versionRouter.post('/restore/:versionId', authMiddleware, restoreVersion);

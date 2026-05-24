@@ -27,7 +27,7 @@ const documentSocket = (io) => {
       }
       //Attach user to socket
       socket.user = user;
-    console.log("User connected:", );
+    console.log("User connected:", socket.id);
     // Join document room
     socket.on("join-document",async (documentId) => {
         try {
@@ -75,10 +75,6 @@ const documentSocket = (io) => {
     socket.on("disconnect", () => {
       console.log("User disconnected:", socket.id);
     });
-    }catch(error){
-      console.error("Authentication error:", error);
-      socket.disconnect();
-    }
   });
 };
 export default documentSocket;

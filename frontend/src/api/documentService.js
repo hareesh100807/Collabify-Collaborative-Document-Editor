@@ -8,7 +8,7 @@ export const getDocuments = async () => {
 
 //Create a new document
 export const createDocument = async (data) => {
-  const response = await axiosInstance.post("/documents", { data });
+  const response = await axiosInstance.post("/documents", data);
   return response.data.document;
 };
 //delete document

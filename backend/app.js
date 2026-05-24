@@ -1,3 +1,6 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
 import cors from 'cors';
 import exp from 'express';
 import cookieParser from 'cookie-parser';
@@ -7,12 +10,12 @@ import versionRouter from './routes/versionRoutes.js';
 import shareRouter from './routes/shareRoutes.js';
 //express application
 const app = exp();
-//middlewares
-// allow cross-origin requests
+//cors middleware
 app.use(cors({
-  origin: process.env.FRONTEND_URL,
-  credentials: true,
+  origin: "http://localhost:5173",
+  credentials: true
 }));
+
 //body parser
 app.use(exp.json());
 //cookie parser

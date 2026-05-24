@@ -17,7 +17,11 @@ const UserSchema = new Schema({
     },
     password: {
         type: String,
-        required: true,
+        required: function() { 
+            // password required only if user registers locally
+            const hasLocal = Array.isArray(this.providers) ? this.providers.some(p => p.name === 'local') : true;
+            return hasLocal;
+        },
         trim: true,
         select: false, // Exclude password from query results by default
     },

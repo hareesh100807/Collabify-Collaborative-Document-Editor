@@ -31,12 +31,17 @@ export const getDocumentById = async (req, res) => {
     try {
         //get document id from request params
         const id  = req.params.id;
-        const  owner  = req.user._id;
         //find document by id
-        const document = await Document.findOne({ _id: id, owner: req.user._id });
+        const document = await Document.findById(id);
         //check if document exists
         if (!document) {
             return res.status(404).json({ error: 'Document not found' });
+        }
+        // check if owner or collaborator
+        const isOwner = document.owner.toString() === req.user._id.toString();
+        const isCollaborator = document.collaborators.some(cId => cId.toString() === req.user._id.toString());
+        if (!isOwner && !isCollaborator) {
+            return res.status(403).json({ error: 'Access denied' });
         }
         //send response
         res.status(200).json({ document });
@@ -49,23 +54,31 @@ export const updateDocument = async (req, res) => {
     try {
         //get document id from request params
         const  id  = req.params.id;
-        const  owner  = req.user._id;
-        //find document by id and update
-        const document = await Document.findOneAndUpdate(
-            { _id: id, owner },
-            { $set: req.body },
-            { new: true }
-        );
+        //find document by id
+        const document = await Document.findById(id);
         //check if document exists
         if (!document) {
             return res.status(404).json({ error: 'Document not found' });
         }
+        // check if owner or collaborator
+        const isOwner = document.owner.toString() === req.user._id.toString();
+        const isCollaborator = document.collaborators.some(cId => cId.toString() === req.user._id.toString());
+        if (!isOwner && !isCollaborator) {
+            return res.status(403).json({ error: 'Access denied' });
+        }
+        //find document by id and update
+        const updatedDoc = await Document.findByIdAndUpdate(
+            id,
+            { $set: req.body },
+            { new: true }
+        );
         //send response
-        res.status(200).json({ document });
+        res.status(200).json({ document: updatedDoc });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 }
+
 
 export const deleteDocument = async (req, res) => {
     try {
@@ -94,7 +107,7 @@ export const shareDocument = async (req, res) => {
             return res.status(404).json({ error: 'User not found' });
         }
         //find document
-        const document = await Document.findById({ documentId });
+        const document = await Document.findById(documentId);
         if (!document) {
             return res.status(404).json({ error: 'Document not found' });
         }

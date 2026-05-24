@@ -1,6 +1,6 @@
 import express from 'express';
 import {register,login,logout,googleAuth,getMe} from '../controllers/authController.js';
-import authMiddleware from '../middleware/authMiddleware.js';
+import authMiddleware from '../middlewares/authMiddleware.js';
 const router = express.Router();
 
 //route to register a new user
@@ -15,6 +15,6 @@ router.post('/logout', logout);
 //route to get current user data
 router.get('/me', authMiddleware, getMe);
 
-// //route to authenticate with Google
-// router.post('/google', googleAuth);
+//route to authenticate with Google
+router.post('/google', googleAuth);
 export default router;
