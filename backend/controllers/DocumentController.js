@@ -3,23 +3,17 @@ import User from '../models/UserModel.js';
 
 export const createDocument = async (req, res) => {
     try {
+        //get title and content from request body
         const { title, content } = req.body;
-        // Safety check for req.user
-        if (!req.user || !req.user._id) {
-            return res.status(401).json({ error: "User authentication missing" });
-        }
-
-        const document = new Document({ 
-            title: title || "Untitled Document", 
-            content: content || " ", // Use a space to avoid empty string validation issues
-            owner: req.user._id 
-        });
-
+        //create a new document
+        const document = new Document({ title: title || "Untitled Document", content: content || "", owner: req.user._id });
+        //save the document
         await document.save();
-        return res.status(201).json({ message: "Document created successfully", document });
+        //send response
+        res.status(201).json({ message: "Document created successfully", document });
     } catch (error) {
-        console.error("Create Document Error:", error);
-        return res.status(500).json({ error: error.message || "Internal server error" });
+        res.status(500).json({ error: error.message });
+        return res.status(500).json({ error: error.message });
     }
 }
 

@@ -2,6 +2,7 @@ import {useState} from 'react';
 import { useNavigate } from 'react-router-dom';
 import axiosInstance from '../api/axios';
 import {useAuth} from '../context/AuthContext.jsx';
+import { GoogleLogin } from '@react-oauth/google';
 
 const LoginPage = () => {    
     const [email, setEmail] = useState('');
@@ -26,6 +27,22 @@ const LoginPage = () => {
           setLoading(false);
         }
     }
+
+    const handleGoogleSuccess = async (credentialResponse) => {
+        try {
+            setLoading(true);
+            setError("");
+            const response = await axiosInstance.post('/auth/google', {
+                credential: credentialResponse.credential
+            });
+            setUser(response.data.payload);
+            navigate('/dashboard');
+        } catch (error) {
+            setError(error.response?.data?.error || "Google Login failed");
+        } finally {
+            setLoading(false);
+        }
+    };
 
 return (
 
@@ -60,13 +77,23 @@ return (
         />
 
       </div>
-       <button
+      <button
         type="submit"
         disabled={loading}
         className="w-full bg-black text-white p-2 rounded"
       >
         {loading ? "Logging in..." : "Login"}
       </button>
+      
+      <div className="my-4 flex items-center before:mt-0.5 before:flex-1 before:border-t before:border-gray-300 after:mt-0.5 after:flex-1 after:border-t after:border-gray-300">
+          <p className="mx-4 mb-0 text-center font-semibold text-gray-500">OR</p>
+      </div>
+      <div className="flex justify-center">
+          <GoogleLogin
+              onSuccess={handleGoogleSuccess}
+              onError={() => setError("Google Login failed")}
+          />
+      </div>
     </form>
   </div>
 );

@@ -1,22 +1,30 @@
 import {useAuth} from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
 import {useEffect,useState} from "react";
-import {getDocuments, createDocument, deleteDocument} from "../api/documentService";
+import {getDocuments, createDocument, deleteDocument, getShareRequests, acceptShareRequest, rejectShareRequest} from "../api/documentService";
+import ShareRequestsModal from "../components/ShareRequestsModal";
 import axiosInstance from "../api/axios";
 
 const DashboardPage = () => {
     const { user, setUser } = useAuth();
     const navigate = useNavigate();
     const [documents, setDocuments] = useState([]);
+    const [shareRequests, setShareRequests] = useState([]);
+    const [isModalOpen, setIsModalOpen] = useState(false);
     const [loading, setLoading] = useState(true);
+    const [actionLoading, setActionLoading] = useState(false);
     const [error, setError] = useState('');
 
-    // Fetch user's documents on component mount
-    const fetchDocuments = async () => {
+    // Fetch user's documents and share requests on component mount
+    const fetchData = async () => {
         try {
             setLoading(true);
-            const docs = await getDocuments();
+            const [docs, requests] = await Promise.all([
+                getDocuments(),
+                getShareRequests()
+            ]);
             setDocuments(docs);
+            setShareRequests(requests);
         }catch(err){
             setError('Failed to load documents. Please try again.');
         }
@@ -25,12 +33,39 @@ const DashboardPage = () => {
         }
     };
 
-    // Refetch documents whenever user changes (e.g., on login)
+    // Refetch data whenever user changes (e.g., on login)
     useEffect(() => {
         if (user) {
-            fetchDocuments();
+            fetchData();
         }
     }, [user]);
+
+    const handleAcceptRequest = async (requestId) => {
+        try {
+            setActionLoading(true);
+            await acceptShareRequest(requestId);
+            setShareRequests(prev => prev.filter(req => req._id !== requestId));
+            // Refresh documents to include the new one
+            const docs = await getDocuments();
+            setDocuments(docs);
+        } catch (err) {
+            alert('Failed to accept request');
+        } finally {
+            setActionLoading(false);
+        }
+    };
+
+    const handleRejectRequest = async (requestId) => {
+        try {
+            setActionLoading(true);
+            await rejectShareRequest(requestId);
+            setShareRequests(prev => prev.filter(req => req._id !== requestId));
+        } catch (err) {
+            alert('Failed to reject request');
+        } finally {
+            setActionLoading(false);
+        }
+    };
 
     // Handler for creating document
     const handleCreateDocument = async () => {
@@ -69,6 +104,20 @@ const DashboardPage = () => {
           <div className="bg-white shadow p-4 flex justify-between items-center">
             <h1 className="text-xl font-bold">Collaborative Editor</h1>
             <div className="flex items-center gap-4">
+                <button 
+                    onClick={() => setIsModalOpen(true)}
+                    className="relative text-gray-600 hover:text-black transition p-2"
+                    title="Share Requests"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                    </svg>
+                    {shareRequests.length > 0 && (
+                        <span className="absolute top-0 right-0 inline-flex items-center justify-center px-2 py-1 text-xs font-bold leading-none text-white transform translate-x-1/2 -translate-y-1/2 bg-red-600 rounded-full">
+                            {shareRequests.length}
+                        </span>
+                    )}
+                </button>
                 <p>Welcome <span className="font-semibold">{user?.username}</span></p>
                 <button className="bg-red-500 text-white px-3 py-1 rounded" onClick={handleLogout}>Logout</button>
             </div>
@@ -106,6 +155,15 @@ const DashboardPage = () => {
               </>
             )}
           </div>
+          
+          <ShareRequestsModal 
+            isOpen={isModalOpen} 
+            onClose={() => setIsModalOpen(false)} 
+            requests={shareRequests} 
+            onAccept={handleAcceptRequest}
+            onReject={handleRejectRequest}
+            loading={actionLoading}
+          />
         </div>            
     );
 };

@@ -14,7 +14,6 @@ const EditorPage = () => {
   const [socket, setSocket] = useState(null);
   const [documentTitle, setDocumentTitle] = useState("Untitled Document");
   const [activeUsers, setActiveUsers] = useState([]);
-  const [saveStatus, setSaveStatus] = useState("Saved");
   const [typingUser, setTypingUser] = useState("");
   const [shareEmail, setShareEmail] = useState("");
   const [shareLoading, setShareLoading] = useState(false);
@@ -76,11 +75,6 @@ const EditorPage = () => {
     socket.on("user-stop-typing", () => {
       setTypingUser("");
     });
-
-    // Listen for title updates from other users
-    socket.on("title-updated", (newTitle) => {
-      setDocumentTitle(newTitle);
-    });
     
     return () => {
       socket.off("load-document");
@@ -90,7 +84,6 @@ const EditorPage = () => {
       socket.off("receive-changes", receiveChangesHandler);
       socket.off("user-typing");
       socket.off("user-stop-typing");
-      socket.off("title-updated");
     };
   }, [socket, documentId, navigate]);
 
@@ -104,10 +97,10 @@ const EditorPage = () => {
       /*SEND CHANGES*/
       socket.emit("send-changes", delta, documentId);
       /* TYPING */
-      socket.emit("typing", { documentId, username: user.username });
+      socket.emit("typing", { documentId, username: user?.username });
       clearTimeout(typingTimeout);
       typingTimeout = setTimeout(() => {
-        socket.emit("stop-typing", { documentId, username: user.username });
+        socket.emit("stop-typing", { documentId, username: user?.username });
       }, 1000);
     };
     quill.on("text-change", textChangeHandler);
@@ -122,31 +115,12 @@ const EditorPage = () => {
     const interval = setInterval(() => {
       const quill = quillRef.current.getEditor();
       const content = quill.getContents();
-      setSaveStatus("Saving...");
-      socket.emit("save-document", { documentId, content, title: documentTitle });
-      setTimeout(() => setSaveStatus("Saved"), 500);
+      socket.emit("save-document", { documentId, content });
     }, 2000);
     return () => {
       clearInterval(interval);
     };
-  }, [socket, documentId, documentTitle]);
-
-  /* HANDLE TITLE CHANGE */
-  const handleTitleChange = (e) => {
-    const newTitle = e.target.value;
-    setDocumentTitle(newTitle);
-  };
-
-  const handleTitleBlur = () => {
-    if (!socket) return;
-    socket.emit("rename-document", { documentId, title: documentTitle });
-  };
-
-  const handleTitleKeyDown = (e) => {
-    if (e.key === "Enter") {
-      e.target.blur();
-    }
-  };
+  }, [socket, documentId]);
 
   //document sharing
   const handleShareDocument = async () => {
@@ -173,15 +147,9 @@ const EditorPage = () => {
           <button onClick={() => navigate("/dashboard")} className="text-gray-600 hover:text-black font-medium">
             ← Back
           </button>
-          <input
-            type="text"
-            value={documentTitle}
-            onChange={handleTitleChange}
-            onBlur={handleTitleBlur}
-            onKeyDown={handleTitleKeyDown}
-            className="text-xl font-bold text-gray-800 border-l pl-4 bg-transparent outline-none border-b-2 border-transparent focus:border-blue-400 transition-colors"
-            placeholder="Untitled Document"
-          />
+          <h1 className="text-xl font-bold text-gray-800 border-l pl-4">
+            {documentTitle}
+          </h1>
         </div>
 
         {/* RIGHT */}
@@ -207,27 +175,16 @@ const EditorPage = () => {
           )}
           {/* AUTO SAVE */}
           <div className="flex items-center gap-2">
-            <input type="email" placeholder="Collaborator email" value={shareEmail} onChange={(e) => setShareEmail(e.target.value)} 
-            className="border border-gray-300 rounded px-3 py-1 text-sm outline-none" />
-            <button onClick={handleShareDocument} disabled={shareLoading} className="bg-blue-500 text-white px-3 py-1 rounded text-sm font-medium hover:bg-blue-600 disabled:bg-blue-300">
-              {shareLoading? "Sharing...":"Share"}
-            </button>
+            <input type="email" placeholder="Collaborator email" value={shareEmail} onChange={(e) => setShareEmail(e.target.value)} />
+            
           </div>
-          <div className={`px-3 py-1 rounded-full text-sm font-medium flex items-center gap-2 ${
-            saveStatus === "Saving..." 
-              ? "bg-yellow-100 text-yellow-700" 
-              : "bg-green-100 text-green-700"
-          }`}>
-            <span className={`w-2 h-2 rounded-full animate-pulse ${
-              saveStatus === "Saving..." ? "bg-yellow-500" : "bg-green-500"
-            }`} />
-            {saveStatus}
+          <div className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-sm font-medium flex items-center gap-2">
+            <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+            Auto Saving
           </div>
         </div>
       </div>
-      {
-        shareMessage && (<div className=" text-sm text-center py-2 bg-gray-200">{shareMessage}</div>)
-      }
+      
       {/* EDITOR */}
       <div className="flex-1 overflow-hidden p-6">
         <div className="max-w-5xl mx-auto bg-white shadow rounded h-full">

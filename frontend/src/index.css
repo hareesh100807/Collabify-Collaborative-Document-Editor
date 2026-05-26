@@ -1,1 +1,11 @@
 @import "tailwindcss";
+
+.quill {
+  display: flex;
+  flex-direction: column;
+}
+.ql-container {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 200px;
+}

@@ -3,6 +3,7 @@ import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
 import RegisterPage from "./pages/RegisterPage";
 import EditorPage from "./pages/EditorPage";
+import InvitePage from "./pages/InvitePage";
 import { useAuth } from "./context/AuthContext";
 function App() {
   const { user } = useAuth();
@@ -13,6 +14,7 @@ function App() {
       <Route path="/register" element={user ? <Navigate to="/dashboard" /> : <RegisterPage />} />
       <Route path="/dashboard" element={user ? <DashboardPage /> : <Navigate to="/login" />} />
        <Route path="/documents/:id" element={user ? <EditorPage /> : <Navigate to="/login" />} />
+       <Route path="/invite/:token" element={<InvitePage />} />
        <Route path="*" element={<Navigate to="/" />} />
     </Routes>
   );

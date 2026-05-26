@@ -10,6 +10,7 @@
     "jsonwebtoken": "^9.0.3",
     "lib0": "^0.2.117",
     "mongoose": "^9.6.2",
+    "nodemailer": "^6.9.13",
     "socket.io": "^4.8.3",
     "y-websocket": "^3.0.0",
     "yjs": "^13.6.30"

@@ -27,5 +27,34 @@ export const addCollaborator = async (documentId, email) => {
 export const removeCollaborator = async (documentId, email) => {
   const response = await axiosInstance.post(`/share/${documentId}/collaborators/remove`, { email });
   return response.data;
-} 
+}
 
+//get share requests
+export const getShareRequests = async () => {
+  const response = await axiosInstance.get('/share/requests');
+  return response.data.requests;
+}
+
+//accept share request
+export const acceptShareRequest = async (requestId) => {
+  const response = await axiosInstance.post(`/share/requests/${requestId}/accept`);
+  return response.data;
+}
+
+//reject share request
+export const rejectShareRequest = async (requestId) => {
+  const response = await axiosInstance.post(`/share/requests/${requestId}/reject`);
+  return response.data;
+}
+
+//generate share link
+export const generateShareLink = async (documentId) => {
+  const response = await axiosInstance.post(`/share/${documentId}/link`);
+  return response.data;
+}
+
+//handle share link
+export const handleShareLink = async (token) => {
+  const response = await axiosInstance.get(`/share/invite/${token}`);
+  return response.data;
+}

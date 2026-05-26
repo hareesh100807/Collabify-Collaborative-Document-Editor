@@ -27,6 +27,13 @@ const DocumentSchema = new Schema({
             type: Schema.Types.ObjectId,
             ref: 'User',
         }
+    ],
+    pendingCollaborators: [
+        {
+            type: String,
+            lowercase: true,
+            trim: true,
+        }
     ]
 }, { timestamps: true });
 
