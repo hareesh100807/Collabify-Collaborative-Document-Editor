@@ -11,13 +11,22 @@ export const createDocument = async (data) => {
   const response = await axiosInstance.post("/documents", data);
   return response.data.document;
 };
+//rename document
+export const renameDocument = async (id, title) => {
+  const response = await axiosInstance.patch(`/documents/${id}/rename`, { title });
+  return response.data;
+};
+
 //delete document
 export const deleteDocument = async (id) => {
   const response = await axiosInstance.delete(`/documents/${id}`);
   return response.data;
 };
 
-//add collaborator
+export const getCollaborators = async (id) => {
+  const response = await axiosInstance.get(`/documents/${id}/collaborators`);
+  return response.data;
+};
 export const addCollaborator = async (documentId, email) => {
   const response = await axiosInstance.post(`/share/${documentId}/collaborators`, { email });
   return response.data;

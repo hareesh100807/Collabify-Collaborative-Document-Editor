@@ -1,5 +1,5 @@
 import {useState} from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import axiosInstance from "../api/axios";
 import {useAuth} from "../context/AuthContext";
 import { GoogleLogin } from '@react-oauth/google';
@@ -11,7 +11,11 @@ const RegisterPage = () => {
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     const navigate = useNavigate();
+    const location = useLocation();
     const { setUser } = useAuth();
+    
+    const queryParams = new URLSearchParams(location.search);
+    const nextUrl = queryParams.get("next") || "/dashboard";
 
     const handleRegister = async (e) => {
         e.preventDefault();
@@ -20,7 +24,7 @@ const RegisterPage = () => {
             setError('');
             const response = await axiosInstance.post('/auth/register', { username, email, password });
             setUser(response.data.payload);
-            navigate('/dashboard');
+            navigate(nextUrl);
         }
         catch(err){
             setError(err.response?.data?.error || 'Registration failed. Please try again.');
@@ -38,7 +42,7 @@ const RegisterPage = () => {
                 credential: credentialResponse.credential
             });
             setUser(response.data.payload);
-            navigate('/dashboard');
+            navigate(nextUrl);
         } catch (error) {
             setError(error.response?.data?.error || "Google Signup failed");
         } finally {

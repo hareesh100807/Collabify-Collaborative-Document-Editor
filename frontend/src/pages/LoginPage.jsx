@@ -1,5 +1,5 @@
 import {useState} from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import axiosInstance from '../api/axios';
 import {useAuth} from '../context/AuthContext.jsx';
 import { GoogleLogin } from '@react-oauth/google';
@@ -10,7 +10,11 @@ const LoginPage = () => {
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     const navigate = useNavigate();
+    const location = useLocation();
     const { setUser } = useAuth();
+    
+    const queryParams = new URLSearchParams(location.search);
+    const nextUrl = queryParams.get("next") || "/dashboard";
     const handleLogin = async (e) => {
         e.preventDefault();
         try{
@@ -20,7 +24,7 @@ const LoginPage = () => {
           //save user
           setUser(response.data.payload);
           //redirect to home page
-          navigate('/dashboard');
+          navigate(nextUrl);
         } catch (error) {
           setError(error.response?.data?.error || "Login failed");
         } finally {
@@ -36,7 +40,7 @@ const LoginPage = () => {
                 credential: credentialResponse.credential
             });
             setUser(response.data.payload);
-            navigate('/dashboard');
+            navigate(nextUrl);
         } catch (error) {
             setError(error.response?.data?.error || "Google Login failed");
         } finally {

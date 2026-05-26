@@ -69,12 +69,13 @@ const DashboardPage = () => {
 
     // Handler for creating document
     const handleCreateDocument = async () => {
-        try {
-            const newDoc = await createDocument({ title: "Untitled", content: "" });
-            navigate(`/documents/${newDoc._id}`);
-        } catch (err) {
-            setError('Failed to create document. Please try again.');
-        }
+      try {
+        const title = window.prompt('Enter document title', 'Untitled');
+        const newDoc = await createDocument({ title: title?.trim() || 'Untitled', content: '' });
+        navigate(`/documents/${newDoc._id}`);
+      } catch (err) {
+        setError('Failed to create document. Please try again.');
+      }
     };
 
     // Handler for logout

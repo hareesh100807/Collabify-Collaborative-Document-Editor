@@ -129,3 +129,19 @@ export const shareDocument = async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 }
+export const getDocumentCollaborators = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const document = await Document.findById(id)
+      .populate('owner', 'username email')
+      .populate('collaborators', 'username email');
+    if (!document) return res.status(404).json({ message: 'Document not found' });
+    res.status(200).json({ 
+      owner: document.owner,
+      collaborators: document.collaborators,
+      pendingCollaborators: document.pendingCollaborators,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};

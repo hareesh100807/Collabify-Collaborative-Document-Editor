@@ -61,13 +61,14 @@ export const addCollaborator = async (req, res) => {
             await document.save();
 
             // Send email
-            await sendInviteToUnregistered(email, document.owner.username, document.title);
+            const registerLink = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/register?next=/documents/${documentId}`;
+            await sendInviteToUnregistered(email, document.owner.username, document.title, registerLink);
 
             return res.status(200).json({ message: "Invitation sent! They'll get access when they register." });
         }
     } catch (error) {
         console.error("Add collaborator error:", error);
-        res.status(500).json({ message: "Server error" });
+        res.status(500).json({ message: error.message || "Server error" });
     }
 };
 

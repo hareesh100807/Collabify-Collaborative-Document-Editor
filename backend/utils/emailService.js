@@ -12,8 +12,7 @@ const createTransporter = () => {
 
 export const sendShareNotification = async (toEmail, ownerName, documentTitle, inviteLink) => {
     if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-        console.warn("Email service is not configured. Skipping share notification.");
-        return;
+        throw new Error("Email service is not configured in .env. Please restart your backend server!");
     }
     const transporter = createTransporter();
     
@@ -33,13 +32,13 @@ export const sendShareNotification = async (toEmail, ownerName, documentTitle, i
         await transporter.sendMail(mailOptions);
     } catch (error) {
         console.error("Error sending share notification email:", error);
+        throw new Error("Email sending failed: " + error.message);
     }
 };
 
 export const sendInviteToUnregistered = async (toEmail, ownerName, documentTitle, registerLink) => {
     if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-        console.warn("Email service is not configured. Skipping invite notification.");
-        return;
+        throw new Error("Email service is not configured in .env. Please restart your backend server!");
     }
     const transporter = createTransporter();
     
@@ -51,7 +50,7 @@ export const sendInviteToUnregistered = async (toEmail, ownerName, documentTitle
             <h2>${ownerName} has invited you to collaborate!</h2>
             <p>You have been invited to edit the document: <strong>${documentTitle}</strong></p>
             <p>To access this document, please register an account first.</p>
-            <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/register" style="display: inline-block; padding: 10px 20px; background-color: #10b981; color: white; text-decoration: none; border-radius: 5px;">Register Now</a>
+            <a href="${registerLink}" style="display: inline-block; padding: 10px 20px; background-color: #10b981; color: white; text-decoration: none; border-radius: 5px;">Register Now</a>
         `,
     };
 
@@ -59,13 +58,13 @@ export const sendInviteToUnregistered = async (toEmail, ownerName, documentTitle
         await transporter.sendMail(mailOptions);
     } catch (error) {
         console.error("Error sending invite email:", error);
+        throw new Error("Email sending failed: " + error.message);
     }
 };
 
 export const sendRejectionNotification = async (ownerEmail, rejectorName, documentTitle) => {
     if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-        console.warn("Email service is not configured. Skipping rejection notification.");
-        return;
+        throw new Error("Email service is not configured in .env. Please restart your backend server!");
     }
     const transporter = createTransporter();
     
@@ -83,5 +82,6 @@ export const sendRejectionNotification = async (ownerEmail, rejectorName, docume
         await transporter.sendMail(mailOptions);
     } catch (error) {
         console.error("Error sending rejection notification email:", error);
+        throw new Error("Email sending failed: " + error.message);
     }
 };
