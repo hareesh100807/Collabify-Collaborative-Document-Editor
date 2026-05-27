@@ -297,23 +297,15 @@ const [collabInfo, setCollabInfo] = useState({ owner: null, collaborators: [], p
             )}
             <div className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-sm font-medium flex items-center gap-2">
             <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-            Auto Saving
+            Auto Saving...
           </div>
         </div>
       </div>
-      
+
       {/* EDITOR */}
-      <div className="flex-1 overflow-hidden p-6">
-        <div className="max-w-5xl mx-auto bg-white shadow rounded h-full">
-          <ReactQuill
-            ref={quillRef}
-            theme="snow"
-            className="h-full"
-          />
-        </div>
+      <div className="flex-1">
+        <ReactQuill ref={quillRef} theme="snow" className="h-full" />
       </div>
     </div>
   );
-};
-
-export default EditorPage;
+}
