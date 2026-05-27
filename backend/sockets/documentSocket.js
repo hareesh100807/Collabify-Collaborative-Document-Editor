@@ -27,11 +27,6 @@ const documentSocket = (io) => {
       }
       //Attach user to socket
       socket.user = user;
-    } catch (err) {
-      console.error("Socket Auth Error:", err);
-      socket.disconnect();
-      return;
-    }
     console.log("User connected:", socket.id);
     // Join document room
     socket.on("join-document",async (documentId) => {
@@ -64,11 +59,10 @@ const documentSocket = (io) => {
       }
     );
     // Save document
-    socket.on("save-document",async ({ documentId, content }) => {
+    socket.on("save-document",async ({ documentId, content,userId }) => {
         try {
           await Document.findByIdAndUpdate(documentId,{ content });
-            // Save version
-          const userId = socket.user?._id;
+          // Save version
           const version = new Version({documentId, content, editedBy: userId});
           await version.save();
           console.log("Document saved");
@@ -77,15 +71,6 @@ const documentSocket = (io) => {
         }
       }
     );
-    // Typing indicators
-    socket.on("typing", ({ documentId, username }) => {
-      socket.to(documentId).emit("user-typing", username);
-    });
-    
-    socket.on("stop-typing", ({ documentId, username }) => {
-      socket.to(documentId).emit("user-stop-typing", username);
-    });
-
     // Handle disconnect
     socket.on("disconnect", () => {
       console.log("User disconnected:", socket.id);

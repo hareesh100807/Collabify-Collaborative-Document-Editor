@@ -1,7 +1,6 @@
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import UserModel from '../models/UserModel.js';
-import DocumentModel from '../models/DocumentModel.js';
 import { OAuth2Client } from 'google-auth-library';
 import fetch from 'node-fetch';
 
@@ -58,16 +57,6 @@ export const googleAuth = async (req, res) => {
         await user.save();
       }
     }
-    
-    // Convert pending invites to active collaborator access
-    await DocumentModel.updateMany(
-      { pendingCollaborators: user.email },
-      { 
-        $push: { collaborators: user._id },
-        $pull: { pendingCollaborators: user.email }
-      }
-    );
-
     const token = jwt.sign({ userId: user._id },process.env.JWT_SECRET,{ expiresIn: '7d' });
 
     res.cookie('token', token, {
@@ -109,16 +98,6 @@ export const register = async (req, res) => {
   //creating user
   const newUser = new UserModel({ username, email, password: hashedPassword ,providers:[{name:"local"}]});
     await newUser.save();
-
-    // Convert pending invites to active collaborator access
-    await DocumentModel.updateMany(
-      { pendingCollaborators: newUser.email },
-      { 
-        $push: { collaborators: newUser._id },
-        $pull: { pendingCollaborators: newUser.email }
-      }
-    );
-
   //generate jwt token
     const token = jwt.sign({ userId: newUser._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
     //send cookie
@@ -153,16 +132,6 @@ export const login = async (req, res) => {
     if (!isPasswordValid) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
-
-    // Convert pending invites to active collaborator access
-    await DocumentModel.updateMany(
-      { pendingCollaborators: user.email },
-      { 
-        $push: { collaborators: user._id },
-        $pull: { pendingCollaborators: user.email }
-      }
-    );
-
     // 4. Generate token
     const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET,{ expiresIn: '7d' });
     // 5. Send cookie
