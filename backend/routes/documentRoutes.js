@@ -1,5 +1,5 @@
 import express from 'express';
-import { createDocument, getDocuments, getDocumentById, updateDocument, deleteDocument, shareDocument, renameDocument } from '../controllers/documentController.js';
+import { createDocument, getDocuments, getDocumentById, updateDocument, deleteDocument, shareDocument, renameDocument, getDocumentCollaborators } from '../controllers/documentController.js';
 import  authMiddleware  from '../middlewares/authMiddleware.js';
 
 const docRouter = express.Router();

@@ -1,8 +1,4 @@
 {
-  "dependencies": {
-    "react-quill": "^2.0.0",
-    "socket.io-client": "^4.8.3",
-    "y-quill": "^1.0.0",
-    "yjs": "^13.6.30"
-  }
+  "name": "collaborative-document-editor",
+  "private": true
 }

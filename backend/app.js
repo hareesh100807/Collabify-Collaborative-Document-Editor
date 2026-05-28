@@ -12,7 +12,7 @@ import shareRouter from './routes/shareRoutes.js';
 const app = exp();
 //cors middleware
 app.use(cors({
-  origin: "http://localhost:5173",
+  origin: process.env.FRONTEND_URL || "http://localhost:5173",
   credentials: true
 }));
 

@@ -12,7 +12,6 @@ export const createDocument = async (req, res) => {
         //send response
         res.status(201).json({ message: "Document created successfully", document });
     } catch (error) {
-        res.status(500).json({ error: error.message });
         return res.status(500).json({ error: error.message });
     }
 }
@@ -125,6 +124,50 @@ export const shareDocument = async (req, res) => {
         document.collaborators.push(user._id);
         await document.save();
         res.status(200).json({ message: 'Collaborator added' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+}
+
+export const renameDocument = async (req, res) => {
+    try {
+        const id = req.params.id;
+        const { title } = req.body;
+        //find document
+        const document = await Document.findById(id);
+        if (!document) {
+            return res.status(404).json({ error: 'Document not found' });
+        }
+        //check if owner or collaborator
+        const isOwner = document.owner.toString() === req.user._id.toString();
+        const isCollaborator = document.collaborators.some(cId => cId.toString() === req.user._id.toString());
+        if (!isOwner && !isCollaborator) {
+            return res.status(403).json({ error: 'Access denied' });
+        }
+        //update document title
+        document.title = title;
+        await document.save();
+        res.status(200).json({ message: 'Document renamed successfully' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+}
+
+export const getDocumentCollaborators = async (req, res) => {
+    try {
+        const documentId = req.params.id;
+        //find document and populate owner and collaborators
+        const document = await Document.findById(documentId)
+            .populate('owner', 'email username')
+            .populate('collaborators', 'email username');
+        if (!document) {
+            return res.status(404).json({ error: 'Document not found' });
+        }
+        res.status(200).json({ 
+            owner: document.owner,
+            collaborators: document.collaborators,
+            pendingCollaborators: document.pendingCollaborators || []
+        });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
