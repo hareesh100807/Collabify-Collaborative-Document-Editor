@@ -770,98 +770,136 @@ const EditorPage = () => {
     const quill = quillRef.current?.getEditor();
     if (!quill || !selectedImg) return;
 
-    // Record original overlay position offsets for ghost movement
+    // Snapshot the embed data BEFORE any drag starts
+    const blotSnapshot = ReactQuill.Quill.find(selectedImg);
+    if (!blotSnapshot) return;
+    const originalIndex = quill.getIndex(blotSnapshot);
+    const embedValue = ShapeBlot.value(selectedImg) || selectedImg.getAttribute('alt');
+    const embedWidth = selectedImg.style.width || selectedImg.getAttribute('width') || '';
+    const embedHeight = selectedImg.style.height || selectedImg.getAttribute('height') || '';
+
+    // Ghost overlay for drag preview
     const editorWrapper = document.querySelector('.editor-wrapper');
     const wrapperRect = editorWrapper?.getBoundingClientRect() || { top: 0, left: 0 };
     const imgRect = selectedImg.getBoundingClientRect();
     const startMouseX = e.clientX;
     const startMouseY = e.clientY;
-    const startOverlayTop = imgRect.top - wrapperRect.top;
-    const startOverlayLeft = imgRect.left - wrapperRect.left;
-    const overlayW = imgRect.width;
-    const overlayH = imgRect.height;
+    const startTop = imgRect.top - wrapperRect.top;
+    const startLeft = imgRect.left - wrapperRect.left;
 
-    // Show a ghost overlay so user can see where they're dragging
     const ghost = document.createElement('div');
     ghost.style.cssText = `
       position:absolute;
-      width:${overlayW}px;
-      height:${overlayH}px;
-      top:${startOverlayTop}px;
-      left:${startOverlayLeft}px;
+      width:${imgRect.width}px;
+      height:${imgRect.height}px;
+      top:${startTop}px;
+      left:${startLeft}px;
       border:2px dashed #f59e0b;
-      background:rgba(245,158,11,0.12);
+      background:rgba(245,158,11,0.10);
       pointer-events:none;
       z-index:200;
       border-radius:4px;
       box-sizing:border-box;
+      transition: top 0ms, left 0ms;
     `;
     editorWrapper?.appendChild(ghost);
+
+    // Drop caret line indicator
+    const caretLine = document.createElement('div');
+    caretLine.style.cssText = `
+      position:fixed;
+      width:2px;
+      height:20px;
+      background:#f59e0b;
+      pointer-events:none;
+      z-index:300;
+      border-radius:1px;
+      display:none;
+    `;
+    document.body.appendChild(caretLine);
 
     const handleMoveMove = (moveEvent) => {
       const dx = moveEvent.clientX - startMouseX;
       const dy = moveEvent.clientY - startMouseY;
-      ghost.style.top = `${startOverlayTop + dy}px`;
-      ghost.style.left = `${startOverlayLeft + dx}px`;
+      ghost.style.top = `${startTop + dy}px`;
+      ghost.style.left = `${startLeft + dx}px`;
+
+      // Show a caret line at the drop position
+      caretLine.style.display = 'block';
+      caretLine.style.left = `${moveEvent.clientX}px`;
+      caretLine.style.top = `${moveEvent.clientY - 10}px`;
     };
 
     const handleMoveUp = (upEvent) => {
       document.removeEventListener('mousemove', handleMoveMove);
       document.removeEventListener('mouseup', handleMoveUp);
       ghost.remove();
+      caretLine.remove();
 
-      // Find Quill index at drop point using caretRangeFromPoint / caretPositionFromPoint
+      // ── Reliable drop index: set browser selection at drop point, ask Quill ──
       let dropIndex = null;
       try {
-        let range = null;
+        // Temporarily make the shape invisible so caretRangeFromPoint
+        // doesn't land on it (it would just return the shape's own index)
+        selectedImg.style.visibility = 'hidden';
+
+        let domRange = null;
         if (document.caretRangeFromPoint) {
-          range = document.caretRangeFromPoint(upEvent.clientX, upEvent.clientY);
+          domRange = document.caretRangeFromPoint(upEvent.clientX, upEvent.clientY);
         } else if (document.caretPositionFromPoint) {
           const pos = document.caretPositionFromPoint(upEvent.clientX, upEvent.clientY);
           if (pos) {
-            range = document.createRange();
-            range.setStart(pos.offsetNode, pos.offset);
+            domRange = document.createRange();
+            domRange.setStart(pos.offsetNode, pos.offset);
+            domRange.collapse(true);
           }
         }
-        if (range) {
-          dropIndex = quill.getIndex(ReactQuill.Quill.find(range.startContainer) ||
-            ReactQuill.Quill.find(range.startContainer.parentNode));
-          // Fallback: use Quill's own getBounds inverse
-          if (dropIndex == null || isNaN(dropIndex)) {
-            dropIndex = null;
+
+        if (domRange) {
+          // Place the browser selection there so Quill can read it
+          const sel = window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(domRange);
+
+          // quill.getSelection() reads the current browser selection
+          const qlSel = quill.getSelection();
+          if (qlSel !== null && !isNaN(qlSel.index)) {
+            dropIndex = qlSel.index;
           }
+
+          // Clean up the temporary selection
+          sel.removeAllRanges();
         }
-      } catch (_) { /* noop */ }
 
-      // Determine the original blot index of the shape
-      const blot = ReactQuill.Quill.find(selectedImg);
-      if (!blot) return;
-      const originalIndex = quill.getIndex(blot);
+        selectedImg.style.visibility = '';
+      } catch (_) {
+        try { selectedImg.style.visibility = ''; } catch (__) { /* noop */ }
+      }
 
-      // Read the embed value and dimensions before deletion
-      const embedValue = ShapeBlot.value(selectedImg) || selectedImg.getAttribute('alt');
-      const embedWidth = selectedImg.style.width || selectedImg.getAttribute('width');
-      const embedHeight = selectedImg.style.height || selectedImg.getAttribute('height');
+      // If we couldn't find a valid drop target inside the editor, abort
+      if (dropIndex === null) return;
 
-      // If drop target is not within the editor root, just abort
-      if (dropIndex == null) return;
-
-      // Perform the move: delete at original, insert at adjusted index
+      // ── Perform the move ──
       quill.deleteText(originalIndex, 1, 'user');
-      // After deletion, if drop is after original the index shifts by -1
-      const adjustedIndex = dropIndex > originalIndex ? dropIndex - 1 : dropIndex;
-      const finalIndex = Math.max(0, Math.min(adjustedIndex, quill.getLength() - 1));
+
+      // After deleting, indices after the original shift left by 1
+      const adjusted = dropIndex > originalIndex ? dropIndex - 1 : dropIndex;
+      const finalIndex = Math.max(0, Math.min(adjusted, quill.getLength() - 1));
+
       quill.insertEmbed(finalIndex, 'shape', embedValue, 'user');
+      quill.setSelection(finalIndex + 1, 0, 'silent');
 
       // Restore dimensions on the newly inserted node
       setTimeout(() => {
-        const newBlot = quill.getLeaf(finalIndex)[0];
-        if (newBlot && newBlot.domNode && newBlot.domNode.tagName === 'IMG') {
-          if (embedWidth) newBlot.domNode.style.width = embedWidth;
-          if (embedHeight) newBlot.domNode.style.height = embedHeight;
-          setSelectedImg(newBlot.domNode);
-        }
-      }, 0);
+        try {
+          const [leaf] = quill.getLeaf(finalIndex);
+          if (leaf && leaf.domNode && leaf.domNode.tagName === 'IMG') {
+            if (embedWidth) leaf.domNode.style.width = embedWidth;
+            if (embedHeight) leaf.domNode.style.height = embedHeight;
+            setSelectedImg(leaf.domNode);
+          }
+        } catch (_) { /* noop */ }
+      }, 20);
     };
 
     document.addEventListener('mousemove', handleMoveMove);
