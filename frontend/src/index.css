@@ -14,59 +14,61 @@
 }
 
 /* ============================================
-   RIBBON TOOLBAR — Microsoft Word Style
+   MODERN SPLIT TOOLBAR — Two Stacked Row Components
    ============================================ */
-.custom-ribbon.ql-toolbar.ql-snow {
+.custom-toolbar-modern-split.ql-toolbar.ql-snow {
   border: none !important;
-  border-bottom: 1px solid #cbd5e1 !important;
+  border-bottom: 1px solid #e2e8f0 !important;
   border-radius: 0 !important;
-  background-color: #f8fafc !important;
+  background-color: #ffffff !important;
   display: flex !important;
-  justify-content: center;
-  padding: 4px 12px 0 12px !important;
-  gap: 4px;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.05) !important;
-  z-index: 10;
+  flex-direction: column !important;
+  align-items: center !important;
+  padding: 6px 16px !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02), 0 4px 12px -5px rgba(0, 0, 0, 0.05) !important;
+  z-index: 30;
   max-width: 100% !important;
   width: 100% !important;
   margin: 0 !important;
+  position: sticky;
+  top: 0;
+  gap: 6px;
 }
 
-/* Ribbon Structural Elements */
-.ribbon-section {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 12px;
+.toolbar-row {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 100% !important;
+  gap: 8px;
+  flex-wrap: wrap !important;
 }
 
-.ribbon-group {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  flex: 1;
-  padding-bottom: 6px;
+.toolbar-row-divider {
+  width: 100%;
+  max-width: 820px;
+  height: 1px;
+  background-color: #f1f5f9;
+  margin: 2px 0;
 }
 
-.ribbon-label {
-  font-size: 11px;
-  color: #64748b;
-  text-align: center;
-  padding-bottom: 4px;
-  margin-top: auto;
+.toolbar-group {
+  display: flex !important;
+  align-items: center !important;
+  gap: 2px;
 }
 
-.ribbon-divider {
+.toolbar-divider {
   width: 1px;
-  background-color: #cbd5e1;
-  margin: 6px 0;
+  height: 18px;
+  background-color: #e2e8f0;
+  margin: 0 6px;
+  flex-shrink: 0;
 }
 
-/* Override Quill formats margins for ribbon */
+/* Align action and format items */
 .ql-toolbar.ql-snow .ql-formats {
-  margin-right: 4px !important;
+  margin-right: 2px !important;
   padding-right: 0 !important;
   border-right: none !important;
   display: flex;
@@ -80,17 +82,19 @@
    TOOLBAR BUTTONS — Clean, Modern
    ============================================ */
 .ql-toolbar.ql-snow button {
-  width: 30px !important;
-  height: 30px !important;
+  width: 32px !important;
+  height: 32px !important;
   display: inline-flex !important;
-  align-items: center;
-  justify-content: center;
+  align-items: center !important;
+  justify-content: center !important;
   border-radius: 6px !important;
-  transition: all 0.15s ease !important;
-  padding: 4px !important;
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  padding: 5px !important;
+  color: #475569 !important;
 }
 .ql-toolbar.ql-snow button:hover {
   background-color: #f1f5f9 !important;
+  color: #0f172a !important;
 }
 .ql-toolbar.ql-snow button.ql-active {
   background-color: #eef2ff !important;
@@ -103,26 +107,36 @@
   fill: #4f46e5 !important;
 }
 
+/* Custom styles for save button */
+.ql-toolbar.ql-snow button.toolbar-save-btn {
+  color: #4f46e5 !important;
+  stroke: #4f46e5 !important;
+}
+.ql-toolbar.ql-snow button.toolbar-save-btn:hover {
+  background-color: #eef2ff !important;
+}
+
 /* ============================================
    TOOLBAR DROPDOWNS — Font, Size, Header, Color
    ============================================ */
 .ql-toolbar.ql-snow .ql-picker {
-  height: 30px !important;
+  height: 32px !important;
 }
 .ql-toolbar.ql-snow .ql-picker-label {
   border: 1px solid #e2e8f0 !important;
   border-radius: 6px !important;
-  padding: 2px 8px !important;
-  font-size: 12px !important;
-  color: #334155 !important;
+  padding: 4px 10px !important;
+  font-size: 13px !important;
+  color: #475569 !important;
   display: flex !important;
   align-items: center !important;
-  transition: all 0.15s ease !important;
-  background: #fafbfc !important;
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  background: #ffffff !important;
 }
 .ql-toolbar.ql-snow .ql-picker-label:hover {
-  background-color: #f1f5f9 !important;
-  border-color: #94a3b8 !important;
+  background-color: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
 }
 .ql-toolbar.ql-snow .ql-picker-label.ql-active {
   border-color: #818cf8 !important;
@@ -134,26 +148,26 @@
 .ql-toolbar.ql-snow .ql-picker-options {
   border: 1px solid #e2e8f0 !important;
   border-radius: 8px !important;
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1),
-              0 4px 6px -4px rgba(0, 0, 0, 0.06) !important;
-  padding: 4px !important;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.08),
+              0 4px 6px -4px rgba(0, 0, 0, 0.03) !important;
+  padding: 6px !important;
   background: #ffffff !important;
   z-index: 100 !important;
   max-height: 280px !important;
   overflow-y: auto !important;
 }
-.ql-toolbar.ql-snow .ql-picker-item {
-  padding: 4px 10px !important;
+.ql-toolbar.ql-snow .ql-picker:not(.ql-color-picker) .ql-picker-item {
+  padding: 6px 10px !important;
   border-radius: 4px !important;
   font-size: 13px !important;
-  color: #334155 !important;
-  transition: background 0.1s ease !important;
+  color: #475569 !important;
+  transition: all 0.1s ease !important;
 }
-.ql-toolbar.ql-snow .ql-picker-item:hover {
+.ql-toolbar.ql-snow .ql-picker:not(.ql-color-picker) .ql-picker-item:hover {
   background-color: #f1f5f9 !important;
-  color: #1e293b !important;
+  color: #0f172a !important;
 }
-.ql-toolbar.ql-snow .ql-picker-item.ql-selected {
+.ql-toolbar.ql-snow .ql-picker:not(.ql-color-picker) .ql-picker-item.ql-selected {
   background-color: #eef2ff !important;
   color: #4f46e5 !important;
   font-weight: 600 !important;
@@ -231,6 +245,8 @@
 .ql-snow .ql-picker.ql-font .ql-picker-label[data-value="verdana"]::before,
 .ql-snow .ql-picker.ql-font .ql-picker-item[data-value="verdana"]::before {
   content: "Verdana" !important;
+  font-family: Verdana, Geneva, sans-serif !important;
+}
 
 /* ============================================
    FONT SIZE LABELS — Show actual px values
@@ -304,6 +320,34 @@
 /* ============================================
    COLOR PICKER ENHANCEMENTS
    ============================================ */
+/* Style color pickers like standard buttons */
+.ql-toolbar.ql-snow .ql-picker.ql-color-picker {
+  width: 32px !important;
+  height: 32px !important;
+}
+.ql-toolbar.ql-snow .ql-color-picker .ql-picker-label {
+  width: 32px !important;
+  height: 32px !important;
+  padding: 0 !important;
+  border: none !important;
+  background: transparent !important;
+  justify-content: center !important;
+  border-radius: 6px !important;
+}
+.ql-toolbar.ql-snow .ql-color-picker .ql-picker-label:hover {
+  background-color: #f1f5f9 !important;
+  border: none !important;
+}
+.ql-toolbar.ql-snow .ql-color-picker .ql-picker-label.ql-active {
+  background-color: #eef2ff !important;
+  border: none !important;
+}
+.ql-toolbar.ql-snow .ql-color-picker .ql-picker-label svg {
+  position: static !important;
+  margin: 0 !important;
+  width: 18px !important;
+  height: 18px !important;
+}
 .ql-toolbar.ql-snow .ql-color-picker .ql-picker-options {
   width: 198px !important;
   padding: 6px !important;
@@ -516,31 +560,92 @@
    SHAPES PICKER & EMBED STYLING
    ============================================ */
 /* Label formatting for shape dropdown */
-.ql-snow .ql-picker.ql-shape {
-  width: 90px !important;
+.custom-shape-picker-container {
+  position: relative;
+  display: inline-block;
 }
-.ql-snow .ql-picker.ql-shape .ql-picker-label::before,
-.ql-snow .ql-picker.ql-shape .ql-picker-item::before {
-  content: "Shape" !important;
+
+.shape-picker-toggle {
+  height: 32px;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 13px;
+  color: #475569;
+  background: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  user-select: none;
 }
-.ql-snow .ql-picker.ql-shape .ql-picker-label[data-value="rectangle"]::before,
-.ql-snow .ql-picker.ql-shape .ql-picker-item[data-value="rectangle"]::before { content: "Rectangle" !important; }
-.ql-snow .ql-picker.ql-shape .ql-picker-label[data-value="circle"]::before,
-.ql-snow .ql-picker.ql-shape .ql-picker-item[data-value="circle"]::before { content: "Circle" !important; }
-.ql-snow .ql-picker.ql-shape .ql-picker-label[data-value="triangle"]::before,
-.ql-snow .ql-picker.ql-shape .ql-picker-item[data-value="triangle"]::before { content: "Triangle" !important; }
-.ql-snow .ql-picker.ql-shape .ql-picker-label[data-value="diamond"]::before,
-.ql-snow .ql-picker.ql-shape .ql-picker-item[data-value="diamond"]::before { content: "Diamond" !important; }
-.ql-snow .ql-picker.ql-shape .ql-picker-label[data-value="hexagon"]::before,
-.ql-snow .ql-picker.ql-shape .ql-picker-item[data-value="hexagon"]::before { content: "Hexagon" !important; }
-.ql-snow .ql-picker.ql-shape .ql-picker-label[data-value="star"]::before,
-.ql-snow .ql-picker.ql-shape .ql-picker-item[data-value="star"]::before { content: "Star" !important; }
-.ql-snow .ql-picker.ql-shape .ql-picker-label[data-value="arrowRight"]::before,
-.ql-snow .ql-picker.ql-shape .ql-picker-item[data-value="arrowRight"]::before { content: "Arrow" !important; }
-.ql-snow .ql-picker.ql-shape .ql-picker-label[data-value="heart"]::before,
-.ql-snow .ql-picker.ql-shape .ql-picker-item[data-value="heart"]::before { content: "Heart" !important; }
-.ql-snow .ql-picker.ql-shape .ql-picker-label[data-value="cloud"]::before,
-.ql-snow .ql-picker.ql-shape .ql-picker-item[data-value="cloud"]::before { content: "Cloud" !important; }
+
+.shape-picker-toggle:hover {
+  background-color: #f8fafc;
+  border-color: #cbd5e1;
+  color: #0f172a;
+}
+
+.shape-picker-toggle.active {
+  border-color: #818cf8;
+  background-color: #eef2ff;
+  color: #4f46e5;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+}
+
+.shape-picker-toggle .chevron-icon {
+  width: 12px;
+  height: 12px;
+  color: #94a3b8;
+  transition: transform 0.2s ease;
+}
+
+.shape-picker-toggle .chevron-icon.open {
+  transform: rotate(180deg);
+}
+
+.shape-picker-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  background-color: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.03);
+  padding: 6px;
+  z-index: 150;
+  width: 150px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.shape-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 13px;
+  color: #475569;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.1s ease;
+  width: 100%;
+}
+
+.shape-picker-item:hover {
+  background-color: #f1f5f9;
+  color: #0f172a;
+}
+
+.shape-picker-item .shape-preview-svg {
+  color: #4f46e5;
+  flex-shrink: 0;
+}
 
 /* In-editor SVG layout */
 .ql-editor .shape-container {

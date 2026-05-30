@@ -27,50 +27,53 @@ const documentSocket = (io) => {
       }
       //Attach user to socket
       socket.user = user;
+    } catch (err) {
+      console.error('Socket auth error:', err);
+      socket.disconnect();
+      return;
+    }
+
     console.log("User connected:", socket.id);
     // Join document room
     socket.on("join-document",async (documentId) => {
-        try {
-          // Validate Mongo ID
-          if (!mongoose.Types.ObjectId.isValid(documentId)) {
-            return;
-          }
-          //join room
-          socket.join(documentId);
-          console.log(`Socket ${socket.id} joined document ${documentId}`);
-          // Find document
-          const document = await Document.findById(documentId);
-          if (!document) {
-            socket.emit("document-not-found");
-            return;
-          }
-
-          // Send existing content
-          socket.emit("load-document",document);
-        } catch (error) {
-          console.error(error);
+      try {
+        // Validate Mongo ID
+        if (!mongoose.Types.ObjectId.isValid(documentId)) {
+          return;
         }
+        //join room
+        socket.join(documentId);
+        console.log(`Socket ${socket.id} joined document ${documentId}`);
+        // Find document
+        const document = await Document.findById(documentId);
+        if (!document) {
+          socket.emit("document-not-found");
+          return;
+        }
+
+        // Send existing content
+        socket.emit("load-document",document);
+      } catch (error) {
+        console.error(error);
       }
-    );
+    });
     // Receive changes
     socket.on("send-changes",(delta, documentId) => {
-        // Send to everyone EXCEPT sender
-        socket.to(documentId).emit("receive-changes",delta);
-      }
-    );
+      // Send to everyone EXCEPT sender
+      socket.to(documentId).emit("receive-changes",delta);
+    });
     // Save document
     socket.on("save-document",async ({ documentId, content,userId }) => {
-        try {
-          await Document.findByIdAndUpdate(documentId,{ content });
-          // Save version
-          const version = new Version({documentId, content, editedBy: userId});
-          await version.save();
-          console.log("Document saved");
-        } catch (error) {
-          console.error(error);
-        }
+      try {
+        await Document.findByIdAndUpdate(documentId,{ content });
+        // Save version
+        const version = new Version({documentId, content, editedBy: userId});
+        await version.save();
+        console.log("Document saved");
+      } catch (error) {
+        console.error(error);
       }
-    );
+    });
     // Handle disconnect
     socket.on("disconnect", () => {
       console.log("User disconnected:", socket.id);

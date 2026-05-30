@@ -80,6 +80,35 @@ export const updateDocument = async (req, res) => {
     }
 }
 
+export const renameDocument = async (req, res) => {
+    try {
+        //get document id from request params
+        const id  = req.params.id;
+        const { title } = req.body;
+        //find document by id
+        const document = await Document.findById(id);
+        //check if document exists
+        if (!document) {
+            return res.status(404).json({ error: 'Document not found' });
+        }   
+        // check if owner or collaborator
+        const isOwner = document.owner.toString() === req.user._id.toString();
+        const isCollaborator = document.collaborators.some(cId => cId.toString() === req.user._id.toString());  
+        if (!isOwner && !isCollaborator) {
+            return res.status(403).json({ error: 'Access denied' });
+        }
+        //find document by id and update title
+        const updatedDoc = await Document.findByIdAndUpdate(
+            id,
+            { title },
+            { new: true }
+        );
+        //send response
+        res.status(200).json({ document: updatedDoc });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+}
 
 export const deleteDocument = async (req, res) => {
     try {
@@ -125,6 +154,20 @@ export const shareDocument = async (req, res) => {
         document.collaborators.push(user._id);
         await document.save();
         res.status(200).json({ message: 'Collaborator added' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+}
+
+export const getDocumentCollaborators = async (req, res) => {
+    try {
+        const documentId = req.params.id;
+        //find document
+        const document = await Document.findById(documentId).populate('collaborators', 'username email');
+        if (!document) {
+            return res.status(404).json({ error: 'Document not found' });
+        }
+        res.status(200).json({ collaborators: document.collaborators });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }

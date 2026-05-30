@@ -33,48 +33,43 @@ const colors = [
   "#4f46e5", "#ec4899", "#14b8a6", "#f59e0b" // custom additions
 ];
 
-// Custom Shape Blot for SVGs
+// Custom Shape Blot for SVGs (inline, resizable like images)
 const BlockEmbed = ReactQuill.Quill.import('blots/block/embed');
 class ShapeBlot extends BlockEmbed {
   static create(value) {
-    let node = super.create();
-    node.setAttribute('data-shape', value);
-    node.setAttribute('contenteditable', 'false');
-    node.className = "shape-container";
-    
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", "0 0 100 100");
-    svg.setAttribute("width", "120");
-    svg.setAttribute("height", "120");
-    svg.setAttribute("class", `shape-embed shape-${value}`);
-    
-    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    path.setAttribute("fill", "#6366f1"); // default indigo color
-    
+    const node = super.create();
+    // Generate SVG markup for the requested shape
     const shapes = {
-      rectangle: "M10 10 H 90 V 90 H 10 Z",
-      circle: "M 50, 50 m -40, 0 a 40,40 0 1,0 80,0 a 40,40 0 1,0 -80,0",
-      triangle: "M 50 10 L 90 90 L 10 90 Z",
-      diamond: "M 50 10 L 90 50 L 50 90 L 10 50 Z",
-      hexagon: "M 30 10 L 70 10 L 90 50 L 70 90 L 30 90 L 10 50 Z",
-      star: "M 50 5 L 61 39 L 97 39 L 68 60 L 79 94 L 50 73 L 21 94 L 32 60 L 3 39 L 39 39 Z",
-      arrowRight: "M 10 35 L 50 35 L 50 15 L 90 50 L 50 85 L 50 65 L 10 65 Z",
-      heart: "M 50 30 C 50 30 45 10 25 10 C 5 10 5 40 5 40 C 5 60 50 90 50 90 C 50 90 95 60 95 40 C 95 40 95 10 75 10 C 55 10 50 30 50 30 Z",
-      cloud: "M 25 60 A 20 20 0 0 1 45 40 A 25 25 0 0 1 85 50 A 15 15 0 0 1 85 80 L 25 80 A 10 10 0 0 1 25 60 Z"
+      rectangle: '<rect x="10" y="10" width="80" height="80" fill="#6366f1"/>',
+      circle: '<circle cx="50" cy="50" r="40" fill="#6366f1"/>',
+      triangle: '<polygon points="50,10 90,90 10,90" fill="#6366f1"/>',
+      diamond: '<polygon points="50,10 90,50 50,90 10,50" fill="#6366f1"/>',
+      hexagon: '<polygon points="30,10 70,10 90,50 70,90 30,90 10,50" fill="#6366f1"/>',
+      star: '<polygon points="50,5 61,39 97,39 68,60 79,94 50,73 21,94 32,60 3,39 39,39" fill="#6366f1"/>',
+      arrowRight: '<path d="M10 35 L50 35 L50 15 L90 50 L50 85 L50 65 L10 65 Z" fill="#6366f1"/>',
+      heart: '<path d="M50 30 C50 30 45 10 25 10 C5 10 5 40 5 40 C5 60 50 90 50 90 C50 90 95 60 95 40 C95 40 95 10 75 10 C55 10 50 30 50 30 Z" fill="#6366f1"/>',
+      cloud: '<path d="M25 60 A20 20 0 0 1 45 40 A25 25 0 0 1 85 50 A15 15 0 0 1 85 80 L25 80 A10 10 0 0 1 25 60 Z" fill="#6366f1"/>'
     };
-    
-    path.setAttribute("d", shapes[value] || shapes.rectangle);
-    svg.appendChild(path);
-    node.appendChild(svg);
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="120" height="120">${shapes[value] || shapes.rectangle}</svg>`;
+    const dataUri = 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg);
+    node.setAttribute('src', dataUri);
+    node.setAttribute('alt', value);
+    node.setAttribute('class', `shape-embed shape-${value}`);
+    // Ensure Quill treats it like an image for inline placement and resizing
+    node.classList.add('ql-image');
     return node;
   }
   static value(node) {
-    return node.getAttribute('data-shape');
+    const classAttr = node.getAttribute('class') || '';
+    const match = classAttr.match(/shape-(\w+)/);
+    return match ? match[1] : '';
   }
 }
 ShapeBlot.blotName = 'shape';
-ShapeBlot.tagName = 'div';
+ShapeBlot.tagName = 'img';
 ReactQuill.Quill.register(ShapeBlot, true);
+ReactQuill.Quill.register(ShapeBlot, true);
+
 // Custom Video Blot for Local Files
 const BlockEmbedVideo = ReactQuill.Quill.import('blots/block/embed');
 class LocalVideoBlot extends BlockEmbedVideo {
@@ -142,149 +137,220 @@ ReactQuill.Quill.register(LocalVideoBlot, true);
   });
 })();
 
-const CustomToolbar = ({ onUndo, onRedo, onSave }) => {
+const ShapeDropdown = ({ pendingShape, onSelectShape }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  useEffect(() => {
+    const handleOutsideClick = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, []);
+
+  const shapes = [
+    { value: "rectangle", label: "Rectangle", path: "M10 10 H 90 V 90 H 10 Z" },
+    { value: "circle", label: "Circle", path: "M 50, 50 m -40, 0 a 40,40 0 1,0 80,0 a 40,40 0 1,0 -80,0" },
+    { value: "triangle", label: "Triangle", path: "M 50 10 L 90 90 L 10 90 Z" },
+    { value: "diamond", label: "Diamond", path: "M 50 10 L 90 50 L 50 90 L 10 50 Z" },
+    { value: "hexagon", label: "Hexagon", path: "M 30 10 L 70 10 L 90 50 L 70 90 L 30 90 L 10 50 Z" },
+    { value: "star", label: "Star", path: "M 50 5 L 61 39 L 97 39 L 68 60 L 79 94 L 50 73 L 21 94 L 32 60 L 3 39 L 39 39 Z" },
+    { value: "arrowRight", label: "Arrow", path: "M 10 35 L 50 35 L 50 15 L 90 50 L 50 85 L 50 65 L 10 65 Z" },
+    { value: "heart", label: "Heart", path: "M 50 30 C 50 30 45 10 25 10 C 5 10 5 40 5 40 C 5 60 50 90 50 90 C 50 90 95 60 95 40 C 95 40 95 10 75 10 C 55 10 50 30 50 30 Z" },
+    { value: "cloud", label: "Cloud", path: "M 25 60 A 20 20 0 0 1 45 40 A 25 25 0 0 1 85 50 A 15 15 0 0 1 85 80 L 25 80 A 10 10 0 0 1 25 60 Z" }
+  ];
+
   return (
-    <div id="custom-toolbar" className="custom-ribbon">
-      {/* Actions Section */}
-      <div className="ribbon-section">
-        <div className="ribbon-group">
-          <span className="ql-formats">
-            <button onClick={onUndo} title="Undo (Ctrl+Z)" className="ribbon-action-btn">
-              <svg viewBox="0 0 18 18">
-                <path className="ql-fill ql-stroke" d="M4.5,9a5.5,5.5,0,1,1,11,0v3.5H13V9a3.5,3.5,0,1,0-7,0v.5h2L4.5,13,1,9.5h2V9Z"/>
+    <div className="custom-shape-picker-container" ref={dropdownRef}>
+      <div
+        role="button"
+        tabIndex={0}
+        className={`shape-picker-toggle ${pendingShape ? 'active' : ''}`}
+        onClick={() => setIsOpen(!isOpen)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            setIsOpen(!isOpen);
+            e.preventDefault();
+          }
+        }}
+        title={pendingShape ? `Shape loaded: Click editor to insert ${pendingShape}` : "Insert Shape"}
+      >
+        <span className="flex items-center gap-1.5">
+          <svg viewBox="0 0 24 24" className="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M12 2L2 22h20L12 2z M12 6l6 11H6l6-11z" fill="currentColor" fillOpacity="0.1"/>
+          </svg>
+          <span className="text-xs font-medium">
+            {pendingShape ? shapes.find(s => s.value === pendingShape)?.label : "Shape"}
+          </span>
+        </span>
+        <svg className={`chevron-icon ${isOpen ? 'open' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M6 9l6 6 6-6" />
+        </svg>
+      </div>
+
+      {isOpen && (
+        <div className="shape-picker-dropdown">
+          {shapes.map((shape) => (
+            <div
+              key={shape.value}
+              role="button"
+              tabIndex={0}
+              className="shape-picker-item"
+              onClick={() => {
+                onSelectShape(shape.value);
+                setIsOpen(false);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  onSelectShape(shape.value);
+                  setIsOpen(false);
+                  e.preventDefault();
+                }
+              }}
+            >
+              <svg viewBox="0 0 100 100" className="w-5 h-5 shape-preview-svg">
+                <path d={shape.path} fill="currentColor" />
               </svg>
-            </button>
-            <button onClick={onRedo} title="Redo (Ctrl+Y)" className="ribbon-action-btn">
-              <svg viewBox="0 0 18 18">
-                <path className="ql-fill ql-stroke" d="M13.5,9a5.5,5.5,0,1,0-11,0v3.5H4.5V9a3.5,3.5,0,1,1,7,0v.5h-2L13.5,13l3.5-3.5h-2V9Z"/>
-              </svg>
-            </button>
-            <button onClick={onSave} title="Force Save (Ctrl+S)" className="ribbon-action-btn" style={{ stroke: '#4f46e5', padding: '2px' }}>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: '18px', height: '18px' }}>
-                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
-                <polyline points="17 21 17 13 7 13 7 21"></polyline>
-                <polyline points="7 3 7 8 15 8"></polyline>
-              </svg>
-            </button>
-          </span>
+              <span>{shape.label}</span>
+            </div>
+          ))}
         </div>
-        <div className="ribbon-label">Actions</div>
-      </div>
+      )}
+    </div>
+  );
+};
 
-      <div className="ribbon-divider"></div>
+const TextStyleToolbarRow = () => {
+  return (
+    <div className="toolbar-row">
+      <span className="ql-formats">
+        <select className="ql-font" defaultValue="inter" title="Font Family">
+          {Font.whitelist.map(font => <option value={font} key={font}>{font}</option>)}
+        </select>
+        <select className="ql-size" defaultValue="16px" title="Font Size">
+          {Size.whitelist.map(size => <option value={size} key={size}>{size}</option>)}
+        </select>
+      </span>
 
-      {/* Font Section */}
-      <div className="ribbon-section">
-        <div className="ribbon-group">
-          <span className="ql-formats">
-            <select className="ql-font" defaultValue="inter" title="Font Family">
-                          {Font.whitelist.map(font => <option value={font} key={font}>{font}</option>)}
-            </select>
-            <select className="ql-size" defaultValue="16px" title="Font Size">
-                          {Size.whitelist.map(size => <option value={size} key={size}>{size}</option>)}
-            </select>
-          </span>
+      <div className="toolbar-divider"></div>
 
-          <span className="ql-formats">
-            <button className="ql-bold" title="Bold (Ctrl+B)" />
-            <button className="ql-italic" title="Italic (Ctrl+I)" />
-            <button className="ql-underline" title="Underline (Ctrl+U)" />
-            <button className="ql-strike" title="Strikethrough" />
-            <button className="ql-script" value="sub" title="Subscript" />
-            <button className="ql-script" value="super" title="Superscript" />
-          </span>
-          <span className="ql-formats">
-            <select className="ql-color" title="Text Color">
-              {colors.map((c, i) => <option value={c} key={`color-${i}`}></option>)}
-            </select>
-            <select className="ql-background" title="Highlight Color">
-              {colors.map((c, i) => <option value={c} key={`bg-${i}`}></option>)}
-            </select>
-          </span>
-          <span className="ql-formats">
-            <button className="ql-clean" title="Clear Formatting" />
-          </span>
-        </div>
-        <div className="ribbon-label">Font</div>
-      </div>
+      <span className="ql-formats">
+        <button className="ql-bold" title="Bold (Ctrl+B)" />
+        <button className="ql-italic" title="Italic (Ctrl+I)" />
+        <button className="ql-underline" title="Underline (Ctrl+U)" />
+        <button className="ql-strike" title="Strikethrough" />
+        <button className="ql-script" value="sub" title="Subscript" />
+        <button className="ql-script" value="super" title="Superscript" />
+      </span>
 
-      <div className="ribbon-divider"></div>
+      <div className="toolbar-divider"></div>
 
-      {/* Paragraph Section */}
-      <div className="ribbon-section">
-        <div className="ribbon-group">
-          <span className="ql-formats">
-            <button className="ql-list" value="ordered" title="Numbered List" />
-            <button className="ql-list" value="bullet" title="Bullet List" />
-            <button className="ql-list" value="check" title="Checklist" />
-          </span>
-          <span className="ql-formats">
-            <button className="ql-align" value="" title="Align Left" />
-            <button className="ql-align" value="center" title="Align Center" />
-            <button className="ql-align" value="right" title="Align Right" />
-            <button className="ql-align" value="justify" title="Justify" />
-          </span>
-          <span className="ql-formats">
-            <button className="ql-indent" value="-1" title="Decrease Indent" />
-            <button className="ql-indent" value="+1" title="Increase Indent" />
-            <button className="ql-direction" value="rtl" title="Right-to-Left Direction" />
-          </span>
-        </div>
-        <div className="ribbon-label">Paragraph</div>
-      </div>
+      <span className="ql-formats">
+        <select className="ql-color" title="Text Color">
+          {colors.map((c, i) => <option value={c} key={`color-${i}`}></option>)}
+        </select>
+        <select className="ql-background" title="Highlight Color">
+          {colors.map((c, i) => <option value={c} key={`bg-${i}`}></option>)}
+        </select>
+      </span>
 
-      <div className="ribbon-divider"></div>
+      <div className="toolbar-divider"></div>
 
-      {/* Styles Section */}
-      <div className="ribbon-section">
-        <div className="ribbon-group">
-          <span className="ql-formats">
-            <select className="ql-header" defaultValue="" title="Heading Styles">
-              <option value="1"></option>
-              <option value="2"></option>
-              <option value="3"></option>
-              <option value="4"></option>
-              <option value="5"></option>
-              <option value="6"></option>
-              <option value=""></option>
-            </select>
-          </span>
-        </div>
-        <div className="ribbon-label">Styles</div>
-      </div>
+      <span className="ql-formats">
+        <button className="ql-clean" title="Clear Formatting" />
+      </span>
+    </div>
+  );
+};
 
-      <div className="ribbon-divider"></div>
+const ActionsInsertToolbarRow = ({ onUndo, onRedo, onSave, pendingShape, onSelectShape }) => {
+  return (
+    <div className="toolbar-row">
+      <span className="ql-formats">
+        <button onClick={onUndo} title="Undo (Ctrl+Z)" className="toolbar-action-btn">
+          <svg viewBox="0 0 18 18">
+            <path className="ql-fill ql-stroke" d="M4.5,9a5.5,5.5,0,1,1,11,0v3.5H13V9a3.5,3.5,0,1,0-7,0v.5h2L4.5,13,1,9.5h2V9Z"/>
+          </svg>
+        </button>
+        <button onClick={onRedo} title="Redo (Ctrl+Y)" className="toolbar-action-btn">
+          <svg viewBox="0 0 18 18">
+            <path className="ql-fill ql-stroke" d="M13.5,9a5.5,5.5,0,1,0-11,0v3.5H4.5V9a3.5,3.5,0,1,1,7,0v.5h-2L13.5,13l3.5-3.5h-2V9Z"/>
+          </svg>
+        </button>
+        <button onClick={onSave} title="Force Save (Ctrl+S)" className="toolbar-save-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: '18px', height: '18px' }}>
+            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+            <polyline points="17 21 17 13 7 13 7 21"></polyline>
+            <polyline points="7 3 7 8 15 8"></polyline>
+          </svg>
+        </button>
+      </span>
 
-      {/* Insert Section */}
-      <div className="ribbon-section">
-        <div className="ribbon-group">
-          <span className="ql-formats">
-            <button className="ql-link" title="Insert Link" />
-            <button className="ql-image" title="Insert Image" />
-            <button className="ql-video" title="Insert Video" />
-            <button className="ql-formula" title="Insert Formula" />
-          </span>
-          <span className="ql-formats">
-            <button className="ql-blockquote" title="Blockquote" />
-            <button className="ql-code-block" title="Code Block" />
-          </span>
-          <span className="ql-formats">
-            <select className="ql-shape" defaultValue="" title="Insert Shape">
-              <option value="" disabled hidden>Shape</option>
-              <option value="rectangle">Rectangle</option>
-              <option value="circle">Circle</option>
-              <option value="triangle">Triangle</option>
-              <option value="diamond">Diamond</option>
-              <option value="hexagon">Hexagon</option>
-              <option value="star">Star</option>
-              <option value="arrowRight">Arrow</option>
-              <option value="heart">Heart</option>
-              <option value="cloud">Cloud</option>
-            </select>
-          </span>
-        </div>
-        <div className="ribbon-label">Insert</div>
-      </div>
+      <div className="toolbar-divider"></div>
+
+      <span className="ql-formats">
+        <button className="ql-list" value="ordered" title="Numbered List" />
+        <button className="ql-list" value="bullet" title="Bullet List" />
+        <button className="ql-list" value="check" title="Checklist" />
+      </span>
+
+      <div className="toolbar-divider"></div>
+
+      <span className="ql-formats">
+        <button className="ql-align" value="" title="Align Left" />
+        <button className="ql-align" value="center" title="Align Center" />
+        <button className="ql-align" value="right" title="Align Right" />
+        <button className="ql-align" value="justify" title="Justify" />
+      </span>
+
+      <div className="toolbar-divider"></div>
+
+      <span className="ql-formats">
+        <button className="ql-indent" value="-1" title="Decrease Indent" />
+        <button className="ql-indent" value="+1" title="Increase Indent" />
+        <button className="ql-direction" value="rtl" title="Right-to-Left Direction" />
+      </span>
+
+      <div className="toolbar-divider"></div>
+
+      <span className="ql-formats">
+        <button className="ql-link" title="Insert Link" />
+        <button className="ql-image" title="Insert Image" />
+        <button className="ql-video" title="Insert Video" />
+        <button className="ql-formula" title="Insert Formula" />
+      </span>
+
+      <div className="toolbar-divider"></div>
+
+      <span className="ql-formats">
+        <button className="ql-blockquote" title="Blockquote" />
+        <button className="ql-code-block" title="Code Block" />
+      </span>
+
+      <div className="toolbar-divider"></div>
+
+      <span className="ql-formats">
+        <ShapeDropdown pendingShape={pendingShape} onSelectShape={onSelectShape} />
+      </span>
+    </div>
+  );
+};
+
+const CustomToolbar = ({ onUndo, onRedo, onSave, pendingShape, onSelectShape }) => {
+  return (
+    <div id="custom-toolbar" className="custom-toolbar-modern-split">
+      <TextStyleToolbarRow />
+      <div className="toolbar-row-divider" />
+      <ActionsInsertToolbarRow 
+        onUndo={onUndo} 
+        onRedo={onRedo} 
+        onSave={onSave} 
+        pendingShape={pendingShape} 
+        onSelectShape={onSelectShape} 
+      />
     </div>
   );
 }
@@ -318,17 +384,6 @@ const modules = {
             this.quill.format('size', value, 'user');
           }
         } catch (err) { console.error('[DEBUG] toolbar.size error', err); }
-      },
-      shape: function(value) {
-        if (value) {
-          // Store pending shape in React state for click-to-draw
-          if (window.__REACT_SHAPE_SETTER__) {
-            window.__REACT_SHAPE_SETTER__(value);
-          }
-          // Reset the select element to default
-          const shapeSelect = document.querySelector('.ql-shape');
-          if (shapeSelect) shapeSelect.value = '';
-        }
       },
       video: function(value) {
         // Open file picker for local video upload
@@ -424,6 +479,26 @@ const EditorPage = () => {
   const [overlayStyle, setOverlayStyle] = useState({ display: 'none' });
   const [showCollabModal, setShowCollabModal] = useState(false);
   const [collabInfo, setCollabInfo] = useState({ owner: null, collaborators: [], pendingCollaborators: [] });
+  // Pending shape selected from toolbar: stored until user clicks in editor to insert
+  const [pendingShape, setPendingShape] = useState(null);
+  // Expose setter globally so Quill toolbar handler (module handlers.shape) can set it
+  useEffect(() => {
+    window.__REACT_SHAPE_SETTER__ = setPendingShape;
+    return () => { if (window.__REACT_SHAPE_SETTER__ === setPendingShape) delete window.__REACT_SHAPE_SETTER__; };
+  }, []);
+
+  // When a shape is selected, insert it at current cursor position
+  useEffect(() => {
+    if (!pendingShape) return;
+    const quill = quillRef.current?.getEditor();
+      if (quill) {
+        const range = quill.getSelection(true);
+        const index = range ? range.index : quill.getLength();
+        quill.insertEmbed(index, 'shape', pendingShape, 'user');
+        quill.setSelection(index + 1, ReactQuill.Quill.sources.SILENT);
+        setPendingShape(null);
+      }
+  }, [pendingShape]);
 
   // Ensure toolbar selects reliably format selected text — attach small DOM change listeners
   useEffect(() => {
@@ -433,6 +508,8 @@ const EditorPage = () => {
       if (!quill || !toolbar) return;
       const fontSelect = toolbar.querySelector('.ql-font');
       const sizeSelect = toolbar.querySelector('.ql-size');
+      const colorSelect = toolbar.querySelector('.ql-color');
+      const bgSelect = toolbar.querySelector('.ql-background');
       const onFontChange = (e) => {
         const val = e.target.value;
         try {
@@ -455,11 +532,37 @@ const EditorPage = () => {
           }
         } catch (err) { console.error('toolbar size change error', err); }
       };
+      const onColorChange = (e) => {
+        const val = e.target.value;
+        try {
+          const range = quill.getSelection();
+          if (range && range.length > 0) {
+            quill.formatText(range.index, range.length, 'color', val || false, 'user');
+          } else {
+            quill.format('color', val || false, 'user');
+          }
+        } catch (err) { console.error('toolbar color change error', err); }
+      };
+      const onBgChange = (e) => {
+        const val = e.target.value;
+        try {
+          const range = quill.getSelection();
+          if (range && range.length > 0) {
+            quill.formatText(range.index, range.length, 'background', val || false, 'user');
+          } else {
+            quill.format('background', val || false, 'user');
+          }
+        } catch (err) { console.error('toolbar background change error', err); }
+      };
       fontSelect?.addEventListener('change', onFontChange);
       sizeSelect?.addEventListener('change', onSizeChange);
+      colorSelect?.addEventListener('change', onColorChange);
+      bgSelect?.addEventListener('change', onBgChange);
       return () => {
         fontSelect?.removeEventListener('change', onFontChange);
         sizeSelect?.removeEventListener('change', onSizeChange);
+        colorSelect?.removeEventListener('change', onColorChange);
+        bgSelect?.removeEventListener('change', onBgChange);
       };
     };
 
@@ -469,13 +572,15 @@ const EditorPage = () => {
     return () => { if (typeof cleanup === 'function') cleanup(); clearTimeout(retry); };
   }, []);
 
-  // Fallback: ensure font/size select changes apply formatting even if
+  // Fallback: ensure font/size/color/bg select changes apply formatting even if
   // Quill's internal toolbar wiring didn't attach. This adds DOM
   // listeners to the selects and calls the Quill API directly.
   useEffect(() => {
     const quill = quillRef.current?.getEditor && quillRef.current.getEditor();
     const fontSelect = document.querySelector('.ql-font');
     const sizeSelect = document.querySelector('.ql-size');
+    const colorSelect = document.querySelector('.ql-color');
+    const bgSelect = document.querySelector('.ql-background');
     function onFontChange(e) {
       try {
         const val = e.target.value;
@@ -504,15 +609,47 @@ const EditorPage = () => {
         }
       } catch (err) { console.error('[DEBUG] fallback onSizeChange error', err); }
     }
+    function onColorChange(e) {
+      try {
+        const val = e.target.value;
+        console.log('[DEBUG] fallback onColorChange, value=', val);
+        const quill = quillRef.current?.getEditor && quillRef.current.getEditor();
+        if (!quill) return;
+        const range = quill.getSelection();
+        if (range && range.length > 0) {
+          quill.formatText(range.index, range.length, 'color', val || false, 'user');
+        } else {
+          quill.format('color', val || false, 'user');
+        }
+      } catch (err) { console.error('[DEBUG] fallback onColorChange error', err); }
+    }
+    function onBgChange(e) {
+      try {
+        const val = e.target.value;
+        console.log('[DEBUG] fallback onBgChange, value=', val);
+        const quill = quillRef.current?.getEditor && quillRef.current.getEditor();
+        if (!quill) return;
+        const range = quill.getSelection();
+        if (range && range.length > 0) {
+          quill.formatText(range.index, range.length, 'background', val || false, 'user');
+        } else {
+          quill.format('background', val || false, 'user');
+        }
+      } catch (err) { console.error('[DEBUG] fallback onBgChange error', err); }
+    }
     if (fontSelect) fontSelect.addEventListener('change', onFontChange);
     if (sizeSelect) sizeSelect.addEventListener('change', onSizeChange);
+    if (colorSelect) colorSelect.addEventListener('change', onColorChange);
+    if (bgSelect) bgSelect.addEventListener('change', onBgChange);
 
     // If toolbar elements aren't present yet, try again shortly.
     let retryTimer = null;
-    if (!fontSelect || !sizeSelect) {
+    if (!fontSelect || !sizeSelect || !colorSelect || !bgSelect) {
       retryTimer = setTimeout(() => {
         const fs = document.querySelector('.ql-font');
         const ss = document.querySelector('.ql-size');
+        const cs = document.querySelector('.ql-color');
+        const bs = document.querySelector('.ql-background');
         if (fs && !fontSelect) {
           console.log('[DEBUG] retry attaching font listener');
           fs.addEventListener('change', onFontChange);
@@ -521,6 +658,14 @@ const EditorPage = () => {
           console.log('[DEBUG] retry attaching size listener');
           ss.addEventListener('change', onSizeChange);
         }
+        if (cs && !colorSelect) {
+          console.log('[DEBUG] retry attaching color listener');
+          cs.addEventListener('change', onColorChange);
+        }
+        if (bs && !bgSelect) {
+          console.log('[DEBUG] retry attaching background listener');
+          bs.addEventListener('change', onBgChange);
+        }
       }, 200);
     }
 
@@ -528,8 +673,12 @@ const EditorPage = () => {
       try {
         const fs = document.querySelector('.ql-font');
         const ss = document.querySelector('.ql-size');
+        const cs = document.querySelector('.ql-color');
+        const bs = document.querySelector('.ql-background');
         if (fs) fs.removeEventListener('change', onFontChange);
         if (ss) ss.removeEventListener('change', onSizeChange);
+        if (cs) cs.removeEventListener('change', onColorChange);
+        if (bs) bs.removeEventListener('change', onBgChange);
       } catch (err) { /* noop */ }
       if (retryTimer) clearTimeout(retryTimer);
     };
@@ -558,36 +707,44 @@ const EditorPage = () => {
   const handleMouseDown = (e, direction) => {
     e.preventDefault();
     e.stopPropagation();
-    
+
     const startX = e.clientX;
     const startY = e.clientY;
     const startWidth = selectedImg.clientWidth;
     const startHeight = selectedImg.clientHeight;
     const aspectRatio = startWidth / startHeight;
-    
+
     const handleMouseMove = (moveEvent) => {
-      let dx = moveEvent.clientX - startX;
-      
+      const dx = moveEvent.clientX - startX;
+      const dy = moveEvent.clientY - startY;
+
       let newWidth = startWidth;
-      
-      if (direction === 'br' || direction === 'tr') {
-        newWidth = startWidth + dx;
-      } else if (direction === 'bl' || direction === 'tl') {
-        newWidth = startWidth - dx;
-      }
-      
-      if (newWidth < 50) newWidth = 50;
-      
+      let newHeight = startHeight;
+
+      // Corner handles — preserve aspect ratio
+      if (direction === 'br') { newWidth = startWidth + dx; newHeight = newWidth / aspectRatio; }
+      else if (direction === 'bl') { newWidth = startWidth - dx; newHeight = newWidth / aspectRatio; }
+      else if (direction === 'tr') { newWidth = startWidth + dx; newHeight = newWidth / aspectRatio; }
+      else if (direction === 'tl') { newWidth = startWidth - dx; newHeight = newWidth / aspectRatio; }
+      // Edge handles — single axis
+      else if (direction === 'mr') { newWidth = startWidth + dx; newHeight = startHeight; }
+      else if (direction === 'ml') { newWidth = startWidth - dx; newHeight = startHeight; }
+      else if (direction === 'mb') { newHeight = startHeight + dy; newWidth = startWidth; }
+      else if (direction === 'mt') { newHeight = startHeight - dy; newWidth = startWidth; }
+
+      if (newWidth < 40) newWidth = 40;
+      if (newHeight < 40) newHeight = 40;
+
       selectedImg.style.width = `${newWidth}px`;
-      selectedImg.style.height = `${newWidth / aspectRatio}px`;
-      
+      selectedImg.style.height = `${newHeight}px`;
+
       reposition();
     };
-    
+
     const handleMouseUp = () => {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
-      
+
       const finalWidth = selectedImg.clientWidth;
       const finalHeight = selectedImg.clientHeight;
       const blot = ReactQuill.Quill.find(selectedImg);
@@ -596,50 +753,157 @@ const EditorPage = () => {
         blot.format('height', `${finalHeight}px`);
       }
     };
-    
+
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
   };
 
+  /**
+   * Drag-to-move: drags the overlay and on mouseup finds the Quill
+   * document index under the cursor, deletes the embed from its original
+   * position, and re-inserts it at the new position.
+   */
+  const handleMoveMouseDown = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const quill = quillRef.current?.getEditor();
+    if (!quill || !selectedImg) return;
+
+    // Record original overlay position offsets for ghost movement
+    const editorWrapper = document.querySelector('.editor-wrapper');
+    const wrapperRect = editorWrapper?.getBoundingClientRect() || { top: 0, left: 0 };
+    const imgRect = selectedImg.getBoundingClientRect();
+    const startMouseX = e.clientX;
+    const startMouseY = e.clientY;
+    const startOverlayTop = imgRect.top - wrapperRect.top;
+    const startOverlayLeft = imgRect.left - wrapperRect.left;
+    const overlayW = imgRect.width;
+    const overlayH = imgRect.height;
+
+    // Show a ghost overlay so user can see where they're dragging
+    const ghost = document.createElement('div');
+    ghost.style.cssText = `
+      position:absolute;
+      width:${overlayW}px;
+      height:${overlayH}px;
+      top:${startOverlayTop}px;
+      left:${startOverlayLeft}px;
+      border:2px dashed #f59e0b;
+      background:rgba(245,158,11,0.12);
+      pointer-events:none;
+      z-index:200;
+      border-radius:4px;
+      box-sizing:border-box;
+    `;
+    editorWrapper?.appendChild(ghost);
+
+    const handleMoveMove = (moveEvent) => {
+      const dx = moveEvent.clientX - startMouseX;
+      const dy = moveEvent.clientY - startMouseY;
+      ghost.style.top = `${startOverlayTop + dy}px`;
+      ghost.style.left = `${startOverlayLeft + dx}px`;
+    };
+
+    const handleMoveUp = (upEvent) => {
+      document.removeEventListener('mousemove', handleMoveMove);
+      document.removeEventListener('mouseup', handleMoveUp);
+      ghost.remove();
+
+      // Find Quill index at drop point using caretRangeFromPoint / caretPositionFromPoint
+      let dropIndex = null;
+      try {
+        let range = null;
+        if (document.caretRangeFromPoint) {
+          range = document.caretRangeFromPoint(upEvent.clientX, upEvent.clientY);
+        } else if (document.caretPositionFromPoint) {
+          const pos = document.caretPositionFromPoint(upEvent.clientX, upEvent.clientY);
+          if (pos) {
+            range = document.createRange();
+            range.setStart(pos.offsetNode, pos.offset);
+          }
+        }
+        if (range) {
+          dropIndex = quill.getIndex(ReactQuill.Quill.find(range.startContainer) ||
+            ReactQuill.Quill.find(range.startContainer.parentNode));
+          // Fallback: use Quill's own getBounds inverse
+          if (dropIndex == null || isNaN(dropIndex)) {
+            dropIndex = null;
+          }
+        }
+      } catch (_) { /* noop */ }
+
+      // Determine the original blot index of the shape
+      const blot = ReactQuill.Quill.find(selectedImg);
+      if (!blot) return;
+      const originalIndex = quill.getIndex(blot);
+
+      // Read the embed value and dimensions before deletion
+      const embedValue = ShapeBlot.value(selectedImg) || selectedImg.getAttribute('alt');
+      const embedWidth = selectedImg.style.width || selectedImg.getAttribute('width');
+      const embedHeight = selectedImg.style.height || selectedImg.getAttribute('height');
+
+      // If drop target is not within the editor root, just abort
+      if (dropIndex == null) return;
+
+      // Perform the move: delete at original, insert at adjusted index
+      quill.deleteText(originalIndex, 1, 'user');
+      // After deletion, if drop is after original the index shifts by -1
+      const adjustedIndex = dropIndex > originalIndex ? dropIndex - 1 : dropIndex;
+      const finalIndex = Math.max(0, Math.min(adjustedIndex, quill.getLength() - 1));
+      quill.insertEmbed(finalIndex, 'shape', embedValue, 'user');
+
+      // Restore dimensions on the newly inserted node
+      setTimeout(() => {
+        const newBlot = quill.getLeaf(finalIndex)[0];
+        if (newBlot && newBlot.domNode && newBlot.domNode.tagName === 'IMG') {
+          if (embedWidth) newBlot.domNode.style.width = embedWidth;
+          if (embedHeight) newBlot.domNode.style.height = embedHeight;
+          setSelectedImg(newBlot.domNode);
+        }
+      }, 0);
+    };
+
+    document.addEventListener('mousemove', handleMoveMove);
+    document.addEventListener('mouseup', handleMoveUp);
+  };
+
   /* Listen to clicks inside editor to select image */
   useEffect(() => {
-    const editor = quillRef.current?.getEditor();
-    if (!editor) return;
-    
-    const handleEditorClick = (e) => {
-      const quill = quillRef.current?.getEditor();
-      if (!quill) return;
-      if (e.target.tagName === 'IMG') {
-        setSelectedImg(e.target);
-        return;
-      }
-      // Check if a shape container was clicked
-      const shapeElem = e.target.closest('.shape-container');
-      if (shapeElem) {
-        setSelectedImg(shapeElem);
-        return;
-      }
-      // If a pending shape is set, insert it at cursor
-      if (pendingShape) {
-        const range = quill.getSelection(true);
-        const index = range ? range.index : quill.getLength();
-        quill.insertEmbed(index, 'shape', pendingShape);
-        quill.setSelection(index + 1);
-        setPendingShape(null);
-        const shapeSelect = document.querySelector('.ql-shape');
-        if (shapeSelect) shapeSelect.value = '';
-        return;
-      }
-      setSelectedImg(null);
-    };
-    
-    const root = editor.root;
-    root.addEventListener('click', handleEditorClick);
-    
-    return () => {
-      root.removeEventListener('click', handleEditorClick);
-    };
-  }, [quillRef.current]);
+  const editor = quillRef.current?.getEditor();
+  if (!editor) return;
+  const handleEditorClick = (e) => {
+    const quill = quillRef.current?.getEditor();
+    if (!quill) return;
+    if (e.target.tagName === 'IMG') {
+      setSelectedImg(e.target);
+      return;
+    }
+    // Check if a shape container was clicked
+    const shapeElem = e.target.closest('.shape-container');
+    if (shapeElem) {
+      setSelectedImg(shapeElem);
+      return;
+    }
+    // If a pending shape is set, insert it at cursor
+    if (pendingShape) {
+      const range = quill.getSelection(true);
+      const index = range ? range.index : quill.getLength();
+      quill.insertEmbed(index, 'shape', pendingShape, 'user');
+      // Undo will now correctly remove the shape insertion
+      quill.setSelection(index + 1, ReactQuill.Quill.sources.SILENT);
+      setPendingShape(null);
+      return;
+    }
+    setSelectedImg(null);
+  };
+
+  const root = editor.root;
+  root.addEventListener('click', handleEditorClick);
+  return () => {
+    root.removeEventListener('click', handleEditorClick);
+  };
+}, [pendingShape]);
 
   /* Monitor selection scroll/resize and escape key */
   useEffect(() => {
@@ -1055,48 +1319,105 @@ const EditorPage = () => {
              }
            }
          }}
+         pendingShape={pendingShape}
+         onSelectShape={setPendingShape}
         />
         <ReactQuill ref={quillRef} theme="snow" className="w-full h-full" modules={modules} formats={formats} />
         {selectedImg && (
-          <div 
+          <div
             style={{
               position: 'absolute',
-              border: '2px dashed #4f46e5',
+              border: '2px solid #4f46e5',
               pointerEvents: 'none',
               zIndex: 50,
               boxSizing: 'border-box',
+              borderRadius: '3px',
+              boxShadow: '0 0 0 2px rgba(79,70,229,0.25)',
               ...overlayStyle
             }}
           >
-            {/* Corner Handles */}
-            {['tl', 'tr', 'bl', 'br'].map((dir) => {
-              const cursor = dir === 'tl' || dir === 'br' ? 'nwse-resize' : 'nesw-resize';
-              const style = {
+            {/* Move handle bar — drag to relocate the shape */}
+            <div
+              title="Drag to move shape"
+              style={{
                 position: 'absolute',
-                width: '10px',
-                height: '10px',
-                backgroundColor: '#ffffff',
-                border: '2px solid #4f46e5',
-                borderRadius: '50%',
-                boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
-                cursor: cursor,
+                top: '-24px',
+                left: '50%',
+                transform: 'translateX(-50%)',
+                background: 'linear-gradient(135deg,#4f46e5,#7c3aed)',
+                color: '#fff',
+                fontSize: '10px',
+                fontWeight: 600,
+                padding: '3px 10px',
+                borderRadius: '6px 6px 0 0',
+                cursor: 'grab',
                 pointerEvents: 'auto',
-                zIndex: 51,
-              };
-              
-              if (dir.includes('t')) style.top = '-6px';
-              if (dir.includes('b')) style.bottom = '-6px';
-              if (dir.includes('l')) style.left = '-6px';
-              if (dir.includes('r')) style.right = '-6px';
-              
-              return (
-                <div
-                  key={dir}
-                  style={style}
-                  onMouseDown={(e) => handleMouseDown(e, dir)}
-                />
-              );
-            })}
+                whiteSpace: 'nowrap',
+                userSelect: 'none',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                boxShadow: '0 -2px 8px rgba(79,70,229,0.3)',
+              }}
+              onMouseDown={handleMoveMouseDown}
+            >
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M13 6v5h5V6h3l-6-6-6 6h4zm-2 12v-5H6v5H3l6 6 6-6h-4z"/>
+              </svg>
+              Move
+            </div>
+
+            {/* Corner handles — preserve aspect ratio */}
+            {[
+              { dir: 'tl', cursor: 'nwse-resize', top: '-6px',    left: '-6px'   },
+              { dir: 'tr', cursor: 'nesw-resize', top: '-6px',    right: '-6px'  },
+              { dir: 'bl', cursor: 'nesw-resize', bottom: '-6px', left: '-6px'   },
+              { dir: 'br', cursor: 'nwse-resize', bottom: '-6px', right: '-6px'  },
+            ].map(({ dir, cursor, ...pos }) => (
+              <div
+                key={dir}
+                style={{
+                  position: 'absolute',
+                  width: '10px',
+                  height: '10px',
+                  backgroundColor: '#fff',
+                  border: '2px solid #4f46e5',
+                  borderRadius: '50%',
+                  boxShadow: '0 2px 4px rgba(0,0,0,0.25)',
+                  cursor,
+                  pointerEvents: 'auto',
+                  zIndex: 51,
+                  ...pos,
+                }}
+                onMouseDown={(e) => handleMouseDown(e, dir)}
+              />
+            ))}
+
+            {/* Edge (mid-side) handles — single-axis resize */}
+            {[
+              { dir: 'mt', cursor: 'ns-resize', top: '-6px',    left: 'calc(50% - 5px)' },
+              { dir: 'mb', cursor: 'ns-resize', bottom: '-6px', left: 'calc(50% - 5px)' },
+              { dir: 'ml', cursor: 'ew-resize', left: '-6px',   top: 'calc(50% - 5px)'  },
+              { dir: 'mr', cursor: 'ew-resize', right: '-6px',  top: 'calc(50% - 5px)'  },
+            ].map(({ dir, cursor, ...pos }) => (
+              <div
+                key={dir}
+                style={{
+                  position: 'absolute',
+                  width: '10px',
+                  height: '10px',
+                  backgroundColor: '#4f46e5',
+                  border: '2px solid #fff',
+                  borderRadius: '2px',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                  cursor,
+                  pointerEvents: 'auto',
+                  zIndex: 51,
+                  ...pos,
+                }}
+                onMouseDown={(e) => handleMouseDown(e, dir)}
+              />
+            ))}
           </div>
         )}
       </div>
