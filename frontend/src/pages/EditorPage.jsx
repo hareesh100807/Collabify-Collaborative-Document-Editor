@@ -60,9 +60,14 @@ class ShapeBlot extends BlockEmbed {
     return node;
   }
   static value(node) {
+    // Prefer the explicit alt attribute which stores the shape name.
+    const alt = node.getAttribute('alt');
+    if (alt) return alt;
+    // Fallback: parse class list, ignoring the generic 'shape-embed' class.
     const classAttr = node.getAttribute('class') || '';
-    const match = classAttr.match(/shape-(\w+)/);
-    return match ? match[1] : '';
+    const classes = classAttr.split(/\s+/);
+    const shapeClass = classes.find(c => c.startsWith('shape-') && c !== 'shape-embed');
+    return shapeClass ? shapeClass.replace('shape-', '') : '';
   }
 }
 ShapeBlot.blotName = 'shape';
@@ -500,189 +505,8 @@ const EditorPage = () => {
       }
   }, [pendingShape]);
 
-  // Ensure toolbar selects reliably format selected text — attach small DOM change listeners
-  useEffect(() => {
-    const tryAttach = () => {
-      const quill = quillRef.current?.getEditor();
-      const toolbar = document.getElementById('custom-toolbar');
-      if (!quill || !toolbar) return;
-      const fontSelect = toolbar.querySelector('.ql-font');
-      const sizeSelect = toolbar.querySelector('.ql-size');
-      const colorSelect = toolbar.querySelector('.ql-color');
-      const bgSelect = toolbar.querySelector('.ql-background');
-      const onFontChange = (e) => {
-        const val = e.target.value;
-        try {
-          const range = quill.getSelection();
-          if (range && range.length > 0) {
-            quill.formatText(range.index, range.length, 'font', val, 'user');
-          } else {
-            quill.format('font', val, 'user');
-          }
-        } catch (err) { console.error('toolbar font change error', err); }
-      };
-      const onSizeChange = (e) => {
-        const val = e.target.value;
-        try {
-          const range = quill.getSelection();
-          if (range && range.length > 0) {
-            quill.formatText(range.index, range.length, 'size', val, 'user');
-          } else {
-            quill.format('size', val, 'user');
-          }
-        } catch (err) { console.error('toolbar size change error', err); }
-      };
-      const onColorChange = (e) => {
-        const val = e.target.value;
-        try {
-          const range = quill.getSelection();
-          if (range && range.length > 0) {
-            quill.formatText(range.index, range.length, 'color', val || false, 'user');
-          } else {
-            quill.format('color', val || false, 'user');
-          }
-        } catch (err) { console.error('toolbar color change error', err); }
-      };
-      const onBgChange = (e) => {
-        const val = e.target.value;
-        try {
-          const range = quill.getSelection();
-          if (range && range.length > 0) {
-            quill.formatText(range.index, range.length, 'background', val || false, 'user');
-          } else {
-            quill.format('background', val || false, 'user');
-          }
-        } catch (err) { console.error('toolbar background change error', err); }
-      };
-      fontSelect?.addEventListener('change', onFontChange);
-      sizeSelect?.addEventListener('change', onSizeChange);
-      colorSelect?.addEventListener('change', onColorChange);
-      bgSelect?.addEventListener('change', onBgChange);
-      return () => {
-        fontSelect?.removeEventListener('change', onFontChange);
-        sizeSelect?.removeEventListener('change', onSizeChange);
-        colorSelect?.removeEventListener('change', onColorChange);
-        bgSelect?.removeEventListener('change', onBgChange);
-      };
-    };
-
-    // Try to attach immediately; Quill should be mounted by now. If not, try once more shortly.
-    const cleanup = tryAttach();
-    const retry = setTimeout(() => { tryAttach(); }, 200);
-    return () => { if (typeof cleanup === 'function') cleanup(); clearTimeout(retry); };
-  }, []);
-
-  // Fallback: ensure font/size/color/bg select changes apply formatting even if
-  // Quill's internal toolbar wiring didn't attach. This adds DOM
-  // listeners to the selects and calls the Quill API directly.
-  useEffect(() => {
-    const quill = quillRef.current?.getEditor && quillRef.current.getEditor();
-    const fontSelect = document.querySelector('.ql-font');
-    const sizeSelect = document.querySelector('.ql-size');
-    const colorSelect = document.querySelector('.ql-color');
-    const bgSelect = document.querySelector('.ql-background');
-    function onFontChange(e) {
-      try {
-        const val = e.target.value;
-        console.log('[DEBUG] fallback onFontChange, value=', val);
-        const quill = quillRef.current?.getEditor && quillRef.current.getEditor();
-        if (!quill) return;
-        const range = quill.getSelection();
-        if (range && range.length > 0) {
-          quill.formatText(range.index, range.length, 'font', val || false, 'user');
-        } else {
-          quill.format('font', val || false, 'user');
-        }
-      } catch (err) { console.error('[DEBUG] fallback onFontChange error', err); }
-    }
-    function onSizeChange(e) {
-      try {
-        const val = e.target.value;
-        console.log('[DEBUG] fallback onSizeChange, value=', val);
-        const quill = quillRef.current?.getEditor && quillRef.current.getEditor();
-        if (!quill) return;
-        const range = quill.getSelection();
-        if (range && range.length > 0) {
-          quill.formatText(range.index, range.length, 'size', val || false, 'user');
-        } else {
-          quill.format('size', val || false, 'user');
-        }
-      } catch (err) { console.error('[DEBUG] fallback onSizeChange error', err); }
-    }
-    function onColorChange(e) {
-      try {
-        const val = e.target.value;
-        console.log('[DEBUG] fallback onColorChange, value=', val);
-        const quill = quillRef.current?.getEditor && quillRef.current.getEditor();
-        if (!quill) return;
-        const range = quill.getSelection();
-        if (range && range.length > 0) {
-          quill.formatText(range.index, range.length, 'color', val || false, 'user');
-        } else {
-          quill.format('color', val || false, 'user');
-        }
-      } catch (err) { console.error('[DEBUG] fallback onColorChange error', err); }
-    }
-    function onBgChange(e) {
-      try {
-        const val = e.target.value;
-        console.log('[DEBUG] fallback onBgChange, value=', val);
-        const quill = quillRef.current?.getEditor && quillRef.current.getEditor();
-        if (!quill) return;
-        const range = quill.getSelection();
-        if (range && range.length > 0) {
-          quill.formatText(range.index, range.length, 'background', val || false, 'user');
-        } else {
-          quill.format('background', val || false, 'user');
-        }
-      } catch (err) { console.error('[DEBUG] fallback onBgChange error', err); }
-    }
-    if (fontSelect) fontSelect.addEventListener('change', onFontChange);
-    if (sizeSelect) sizeSelect.addEventListener('change', onSizeChange);
-    if (colorSelect) colorSelect.addEventListener('change', onColorChange);
-    if (bgSelect) bgSelect.addEventListener('change', onBgChange);
-
-    // If toolbar elements aren't present yet, try again shortly.
-    let retryTimer = null;
-    if (!fontSelect || !sizeSelect || !colorSelect || !bgSelect) {
-      retryTimer = setTimeout(() => {
-        const fs = document.querySelector('.ql-font');
-        const ss = document.querySelector('.ql-size');
-        const cs = document.querySelector('.ql-color');
-        const bs = document.querySelector('.ql-background');
-        if (fs && !fontSelect) {
-          console.log('[DEBUG] retry attaching font listener');
-          fs.addEventListener('change', onFontChange);
-        }
-        if (ss && !sizeSelect) {
-          console.log('[DEBUG] retry attaching size listener');
-          ss.addEventListener('change', onSizeChange);
-        }
-        if (cs && !colorSelect) {
-          console.log('[DEBUG] retry attaching color listener');
-          cs.addEventListener('change', onColorChange);
-        }
-        if (bs && !bgSelect) {
-          console.log('[DEBUG] retry attaching background listener');
-          bs.addEventListener('change', onBgChange);
-        }
-      }, 200);
-    }
-
-    return () => {
-      try {
-        const fs = document.querySelector('.ql-font');
-        const ss = document.querySelector('.ql-size');
-        const cs = document.querySelector('.ql-color');
-        const bs = document.querySelector('.ql-background');
-        if (fs) fs.removeEventListener('change', onFontChange);
-        if (ss) ss.removeEventListener('change', onSizeChange);
-        if (cs) cs.removeEventListener('change', onColorChange);
-        if (bs) bs.removeEventListener('change', onBgChange);
-      } catch (err) { /* noop */ }
-      if (retryTimer) clearTimeout(retryTimer);
-    };
-  }, []);
+  // Quill's native toolbar module automatically wires up all dropdown controls (Font, Size, Color, Background)
+  // and handles selection/formatting natively. Custom DOM listeners have been removed to prevent race conditions.
 
   const reposition = useCallback(() => {
     if (!selectedImg || !document.body.contains(selectedImg)) {
@@ -735,8 +559,11 @@ const EditorPage = () => {
       if (newWidth < 40) newWidth = 40;
       if (newHeight < 40) newHeight = 40;
 
-      selectedImg.style.width = `${newWidth}px`;
-      selectedImg.style.height = `${newHeight}px`;
+      // Only resize if the selected element is an IMG (not a shape container)
+      if (selectedImg.tagName === 'IMG') {
+        selectedImg.style.width = `${newWidth}px`;
+        selectedImg.style.height = `${newHeight}px`;
+      }
 
       reposition();
     };
@@ -765,143 +592,139 @@ const EditorPage = () => {
    */
   const handleMoveMouseDown = (e) => {
     e.preventDefault();
-    e.stopPropagation();
+    if (!selectedImg) return;
 
+    // Record original embed information for later replacement
     const quill = quillRef.current?.getEditor();
-    if (!quill || !selectedImg) return;
+    if (!quill) return;
+    const blot = ReactQuill.Quill.find(selectedImg);
+    const originalIndex = blot ? quill.getIndex(blot) : null;
+    const originalDelta = blot?.value();
 
-    // Snapshot the embed data BEFORE any drag starts
-    const blotSnapshot = ReactQuill.Quill.find(selectedImg);
-    if (!blotSnapshot) return;
-    const originalIndex = quill.getIndex(blotSnapshot);
-    const embedValue = ShapeBlot.value(selectedImg) || selectedImg.getAttribute('alt');
-    const embedWidth = selectedImg.style.width || selectedImg.getAttribute('width') || '';
-    const embedHeight = selectedImg.style.height || selectedImg.getAttribute('height') || '';
-
-    // Ghost overlay for drag preview
+    // Detect if this is a shape embed (shapes are <img> tags but have class 'shape-embed')
+    const isShapeEmbed = selectedImg.classList.contains('shape-embed');
+    // Only store explicit dimensions for real images, never for SVG shape embeds
+    const originalWidth = (!isShapeEmbed && selectedImg.style.width) ? selectedImg.style.width : null;
+    const originalHeight = (!isShapeEmbed && selectedImg.style.height) ? selectedImg.style.height : null;
+    
+    // Record original overlay position offsets for ghost movement
     const editorWrapper = document.querySelector('.editor-wrapper');
     const wrapperRect = editorWrapper?.getBoundingClientRect() || { top: 0, left: 0 };
     const imgRect = selectedImg.getBoundingClientRect();
     const startMouseX = e.clientX;
     const startMouseY = e.clientY;
-    const startTop = imgRect.top - wrapperRect.top;
-    const startLeft = imgRect.left - wrapperRect.left;
+    const startOverlayTop = imgRect.top - wrapperRect.top;
+    const startOverlayLeft = imgRect.left - wrapperRect.left;
+    const overlayW = imgRect.width;
+    const overlayH = imgRect.height;
 
+    // Show a ghost overlay so user can see where they're dragging
     const ghost = document.createElement('div');
     ghost.style.cssText = `
       position:absolute;
-      width:${imgRect.width}px;
-      height:${imgRect.height}px;
-      top:${startTop}px;
-      left:${startLeft}px;
+      width:${overlayW}px;
+      height:${overlayH}px;
+      top:${startOverlayTop}px;
+      left:${startOverlayLeft}px;
       border:2px dashed #f59e0b;
-      background:rgba(245,158,11,0.10);
+      background:rgba(245,158,11,0.12);
       pointer-events:none;
       z-index:200;
       border-radius:4px;
       box-sizing:border-box;
-      transition: top 0ms, left 0ms;
     `;
     editorWrapper?.appendChild(ghost);
-
-    // Drop caret line indicator
-    const caretLine = document.createElement('div');
-    caretLine.style.cssText = `
-      position:fixed;
-      width:2px;
-      height:20px;
-      background:#f59e0b;
-      pointer-events:none;
-      z-index:300;
-      border-radius:1px;
-      display:none;
-    `;
-    document.body.appendChild(caretLine);
 
     const handleMoveMove = (moveEvent) => {
       const dx = moveEvent.clientX - startMouseX;
       const dy = moveEvent.clientY - startMouseY;
-      ghost.style.top = `${startTop + dy}px`;
-      ghost.style.left = `${startLeft + dx}px`;
 
-      // Show a caret line at the drop position
-      caretLine.style.display = 'block';
-      caretLine.style.left = `${moveEvent.clientX}px`;
-      caretLine.style.top = `${moveEvent.clientY - 10}px`;
+      // Clamp ghost inside the editor wrapper so shape can't escape
+      const wRect = editorWrapper?.getBoundingClientRect() || { width: 9999, height: 9999 };
+      const maxLeft = wRect.width  - overlayW;
+      const maxTop  = wRect.height - overlayH;
+      const clampedLeft = Math.max(0, Math.min(startOverlayLeft + dx, maxLeft));
+      const clampedTop  = Math.max(0, Math.min(startOverlayTop  + dy, maxTop));
+
+      ghost.style.top  = `${clampedTop}px`;
+      ghost.style.left = `${clampedLeft}px`;
+
+      // Update ghost position only
     };
 
     const handleMoveUp = (upEvent) => {
+  
+      // Clean up listeners and ghost overlay
       document.removeEventListener('mousemove', handleMoveMove);
       document.removeEventListener('mouseup', handleMoveUp);
       ghost.remove();
-      caretLine.remove();
 
-      // ── Reliable drop index: set browser selection at drop point, ask Quill ──
-      let dropIndex = null;
-      try {
-        // Temporarily make the shape invisible so caretRangeFromPoint
-        // doesn't land on it (it would just return the shape's own index)
-        selectedImg.style.visibility = 'hidden';
+      // Compute wrapper bounds (no scroll offset needed)
+      const wrapperRect = editorWrapper?.getBoundingClientRect() || { left: 0, top: 0, width: 0, height: 0 };
+      const right = wrapperRect.left + wrapperRect.width;
+      const bottom = wrapperRect.top + wrapperRect.height;
 
-        let domRange = null;
-        if (document.caretRangeFromPoint) {
-          domRange = document.caretRangeFromPoint(upEvent.clientX, upEvent.clientY);
-        } else if (document.caretPositionFromPoint) {
-          const pos = document.caretPositionFromPoint(upEvent.clientX, upEvent.clientY);
-          if (pos) {
-            domRange = document.createRange();
-            domRange.setStart(pos.offsetNode, pos.offset);
-            domRange.collapse(true);
+      // Clamp the drop point to stay within the editor content area
+      const clampedX = Math.max(wrapperRect.left, Math.min(upEvent.clientX, right - 1));
+      const clampedY = Math.max(wrapperRect.top, Math.min(upEvent.clientY, bottom - 1));
+
+      // Calculate the offset of the image relative to the wrapper (no scroll offset)
+      const rawLeft = clampedX - wrapperRect.left - overlayW / 2;
+      const rawTop  = clampedY - wrapperRect.top  - overlayH / 2;
+      const finalLeft = Math.max(0, Math.min(rawLeft, wrapperRect.width - overlayW));
+      const finalTop  = Math.max(0, Math.min(rawTop,  wrapperRect.height - overlayH));
+
+        // Compute drop index based on mouse location
+        // Compute drop index based on mouse location using leaf blot
+        let dropIndex = 0;
+        const range = document.caretRangeFromPoint(upEvent.clientX, upEvent.clientY);
+        const quill = quillRef.current?.getEditor();
+        if (quill && range) {
+          const leafInfo = quill.getLeaf(range.startContainer);
+          if (leafInfo && leafInfo[0]) {
+            dropIndex = quill.getIndex(leafInfo[0]);
           }
         }
-
-        if (domRange) {
-          // Place the browser selection there so Quill can read it
-          const sel = window.getSelection();
-          sel.removeAllRanges();
-          sel.addRange(domRange);
-
-          // quill.getSelection() reads the current browser selection
-          const qlSel = quill.getSelection();
-          if (qlSel !== null && !isNaN(qlSel.index)) {
-            dropIndex = qlSel.index;
-          }
-
-          // Clean up the temporary selection
-          sel.removeAllRanges();
+        // Adjust dropIndex if original embed is before it (deletion shifts indices)
+        if (originalIndex !== null && originalIndex < dropIndex) {
+          dropIndex = dropIndex - 1;
         }
-
-        selectedImg.style.visibility = '';
-      } catch (_) {
-        try { selectedImg.style.visibility = ''; } catch (__) { /* noop */ }
-      }
-
-      // If we couldn't find a valid drop target inside the editor, abort
-      if (dropIndex === null) return;
-
-      // ── Perform the move ──
-      quill.deleteText(originalIndex, 1, 'user');
-
-      // After deleting, indices after the original shift left by 1
-      const adjusted = dropIndex > originalIndex ? dropIndex - 1 : dropIndex;
-      const finalIndex = Math.max(0, Math.min(adjusted, quill.getLength() - 1));
-
-      quill.insertEmbed(finalIndex, 'shape', embedValue, 'user');
-      quill.setSelection(finalIndex + 1, 0, 'silent');
-
-      // Restore dimensions on the newly inserted node
-      setTimeout(() => {
-        try {
-          const [leaf] = quill.getLeaf(finalIndex);
-          if (leaf && leaf.domNode && leaf.domNode.tagName === 'IMG') {
-            if (embedWidth) leaf.domNode.style.width = embedWidth;
-            if (embedHeight) leaf.domNode.style.height = embedHeight;
-            setSelectedImg(leaf.domNode);
+        // Remove the original embed
+        if (quill && typeof originalIndex === 'number') {
+          quill.deleteText(originalIndex, 1, 'user');
+        }
+        // Insert the shape embed at the new position with the stored delta
+        if (quill && originalDelta) {
+          quill.insertEmbed(dropIndex, 'shape', originalDelta, 'user');
+          // Move cursor after the inserted shape
+          quill.setSelection(dropIndex + 1, 0, 'silent');
+        }
+        // Retrieve the newly inserted DOM element to apply positioning and size
+        const [leaf] = quill.getLeaf(dropIndex);
+        const newImg = leaf?.domNode;
+        // Apply positioning to the re-inserted element
+        if (newImg) {
+          const isNewShapeEmbed = newImg.classList.contains('shape-embed');
+          newImg.style.position = 'absolute';
+          newImg.style.left = `${finalLeft}px`;
+          newImg.style.top = `${finalTop}px`;
+          if (isNewShapeEmbed) {
+            // Clear any inline size so the SVG uses its own width/height attributes
+            newImg.style.width = '';
+            newImg.style.height = '';
+          } else {
+            // For real images, restore the stored explicit dimensions
+            if (originalWidth) newImg.style.width = originalWidth;
+            if (originalHeight) newImg.style.height = originalHeight;
           }
-        } catch (_) { /* noop */ }
-      }, 20);
+        }
+        // Update selectedImg reference for overlay repositioning
+        setSelectedImg(newImg);
+          reposition();
+
     };
 
+    // Attach listeners for moving
     document.addEventListener('mousemove', handleMoveMove);
     document.addEventListener('mouseup', handleMoveUp);
   };
@@ -1421,8 +1244,9 @@ const EditorPage = () => {
                   backgroundColor: '#fff',
                   border: '2px solid #4f46e5',
                   borderRadius: '50%',
-                  boxShadow: '0 2px 4px rgba(0,0,0,0.25)',
-                  cursor,
+                  boxShadow: 'none !important',
+                  cursor: 'pointer !important',
+                  transition: 'box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important',
                   pointerEvents: 'auto',
                   zIndex: 51,
                   ...pos,
@@ -1604,8 +1428,6 @@ const EditorPage = () => {
   );
 }
 
-export default EditorPage;
-
 // Insert helper to apply font/size to current line
 const applyStyleToCurrentLine = (quill, font, size) => {
   try {
@@ -1630,3 +1452,5 @@ const applyStyleToCurrentLine = (quill, font, size) => {
     console.error('applyStyleToCurrentLine error', err);
   }
 };
+
+export default EditorPage;
