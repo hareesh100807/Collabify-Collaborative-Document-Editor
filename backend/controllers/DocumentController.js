@@ -12,8 +12,9 @@ export const createDocument = async (req, res) => {
         //send response
         res.status(201).json({ message: "Document created successfully", document });
     } catch (error) {
+        // Send a single error response
+        console.error('createDocument error', error);
         res.status(500).json({ error: error.message });
-        return res.status(500).json({ error: error.message });
     }
 }
 
@@ -40,7 +41,10 @@ export const getDocumentById = async (req, res) => {
         }
         // check if owner or collaborator
         const isOwner = document.owner.toString() === req.user._id.toString();
-        const isCollaborator = document.collaborators.some(cId => cId.toString() === req.user._id.toString());
+        const isCollaborator = document.collaborators.some(cId => {
+            const collabId = cId && cId._id ? cId._id.toString() : cId.toString();
+            return collabId === req.user._id.toString();
+        });
         if (!isOwner && !isCollaborator) {
             return res.status(403).json({ error: 'Access denied' });
         }
@@ -63,7 +67,10 @@ export const updateDocument = async (req, res) => {
         }
         // check if owner or collaborator
         const isOwner = document.owner.toString() === req.user._id.toString();
-        const isCollaborator = document.collaborators.some(cId => cId.toString() === req.user._id.toString());
+        const isCollaborator = document.collaborators.some(cId => {
+            const collabId = cId && cId._id ? cId._id.toString() : cId.toString();
+            return collabId === req.user._id.toString();
+        });
         if (!isOwner && !isCollaborator) {
             return res.status(403).json({ error: 'Access denied' });
         }
@@ -117,7 +124,10 @@ export const shareDocument = async (req, res) => {
             return res.status(403).json({ error: 'Only owner can share the document' });
         }
         //prevent duplicate sharing
-        const alreadyCollaborator=document.collaborators.includes(user._id);
+        const alreadyCollaborator = document.collaborators.some(cId => {
+            const collabId = cId && cId._id ? cId._id.toString() : cId.toString();
+            return collabId === user._id.toString();
+        });
         if(alreadyCollaborator){
             return res.status(400).json({ error: 'User is already a collaborator' });
         }
@@ -125,6 +135,50 @@ export const shareDocument = async (req, res) => {
         document.collaborators.push(user._id);
         await document.save();
         res.status(200).json({ message: 'Collaborator added' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+}
+
+export const renameDocument = async (req, res) => {
+    try {
+        const { documentId, newTitle } = req.body;
+        //find document
+        const document = await Document.findById(documentId);
+        if (!document) {
+            return res.status(404).json({ error: 'Document not found' });
+        }
+        //only owner can rename
+        if (document.owner.toString() !== req.user._id.toString()) {
+            return res.status(403).json({ error: 'Only owner can rename the document' });
+        }
+        //update document title
+        document.title = newTitle;
+        await document.save();
+        res.status(200).json({ message: 'Document renamed successfully' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+}
+
+export const getDocumentCollaborators = async (req, res) => {  
+    try {
+        const documentId = req.params.id;
+        //find document
+        const document = await Document.findById(documentId).populate('collaborators', 'username email');
+        if (!document) {
+            return res.status(404).json({ error: 'Document not found' });
+        }
+        //only owner or collaborators can view
+        const isOwner = document.owner.toString() === req.user._id.toString();
+        const isCollaborator = document.collaborators.some(c => {
+            const collabId = c && c._id ? c._id.toString() : c.toString();
+            return collabId === req.user._id.toString();
+        });
+        if (!isOwner && !isCollaborator) {
+            return res.status(403).json({ error: 'Access denied' });
+        }
+        res.status(200).json({ collaborators: document.collaborators });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }

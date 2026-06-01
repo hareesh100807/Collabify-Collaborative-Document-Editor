@@ -53,35 +53,37 @@ const documentSocket = (io) => {
       }
     );
     // Receive changes
-    socket.on("send-changes", (delta, documentId) => {
-      socket.to(documentId).emit("receive-changes", delta);
-    });
-
-    // Save document
-    socket.on("save-document", async ({ documentId, content }) => {
-      try {
-        await Document.findByIdAndUpdate(documentId, { content });
-        const version = new Version({
-          documentId,
-          content,
-          editedBy: socket.user._id,
-        });
-        await version.save();
-        console.log("Document saved");
-      } catch (err) {
-        console.error(err);
+    socket.on("send-changes",(delta, documentId) => {
+        // Send to everyone EXCEPT sender
+        socket.to(documentId).emit("receive-changes",delta);
       }
-    });
-
+    );
+    // Save document
+    socket.on("save-document", async ({ documentId, content, userId }) => {
+        try {
+          await Document.findByIdAndUpdate(documentId, { content });
+          // Save version only if userId is provided
+          if (userId) {
+            const version = new Version({ documentId, content, editedBy: userId });
+            await version.save();
+          }
+          console.log("Document saved");
+          socket.emit("save-ack", { success: true });
+        } catch (error) {
+          console.error("Error saving document:", error);
+          socket.emit("save-ack", { success: false, error: error.message });
+        }
+      }
+    );
     // Handle disconnect
     socket.on("disconnect", () => {
       console.log("User disconnected:", socket.id);
     });
-
-    } catch (error) {
-      console.error("Socket connection error:", error);
+    }catch(error){
+      console.error("Error in socket connection:", error);
       socket.disconnect();
     }
   });
+
 };
 export default documentSocket;

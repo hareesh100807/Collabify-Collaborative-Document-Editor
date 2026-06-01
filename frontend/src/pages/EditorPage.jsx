@@ -4,11 +4,11 @@ import "react-quill-new/dist/quill.snow.css";
 import { useNavigate, useParams } from "react-router-dom";
 import { io } from "socket.io-client";
 import { useAuth } from "../context/AuthContext";
-import { addCollaborator, renameDocument, getCollaborators } from "../api/documentService.js";
+import { addCollaborator, renameDocument, getCollaborators, generateShareLink, removeCollaborator } from "../api/documentService.js";
 import axiosInstance from "../api/axios.js";
 
-// Quill Font Registration
-const Font = ReactQuill.Quill.import("formats/font");
+// Quill Font Registration (style attributor)
+const Font = ReactQuill.Quill.import("attributors/style/font");
 Font.whitelist = [
   "sans-serif", "serif", "monospace",
   "inter", "roboto", "arial", "georgia",
@@ -18,438 +18,328 @@ Font.whitelist = [
 ReactQuill.Quill.register(Font, true);
 
 // Quill Size Registration
-const Size = ReactQuill.Quill.import("formats/size");
+const Size = ReactQuill.Quill.import("attributors/style/size");
 Size.whitelist = ["10px", "12px", "14px", "16px", "18px", "20px", "24px", "28px", "36px", "48px", "72px"];
 ReactQuill.Quill.register(Size, true);
 
-// Pre-defined color palette
-const colors = [
-  "", // Empty option for "default/clear"
-  "#000000", "#e60000", "#ff9900", "#ffff00", "#008a00", "#0066cc", "#9933ff",
-  "#ffffff", "#facccc", "#ffebcc", "#ffffcc", "#cce8cc", "#cce0f5", "#ebd6ff",
-  "#bbbbbb", "#f06666", "#ffc266", "#ffff66", "#66b966", "#66a3e0", "#c285ff",
-  "#888888", "#a10000", "#b26b00", "#b2b200", "#006100", "#0047b2", "#6b24b2",
-  "#444444", "#5c0000", "#663d00", "#666600", "#003700", "#002966", "#3d1466",
-  "#4f46e5", "#ec4899", "#14b8a6", "#f59e0b" // custom additions
-];
-
-// Custom Shape Blot for SVGs (inline, resizable like images)
+// --- Custom Shape and Image Blots ---
 const BlockEmbed = ReactQuill.Quill.import('blots/block/embed');
-class ShapeBlot extends BlockEmbed {
-  static create(value) {
-    const node = super.create();
-    // Generate SVG markup for the requested shape
-    const shapes = {
-      rectangle: '<rect x="10" y="10" width="80" height="80" fill="#6366f1"/>',
-      circle: '<circle cx="50" cy="50" r="40" fill="#6366f1"/>',
-      triangle: '<polygon points="50,10 90,90 10,90" fill="#6366f1"/>',
-      diamond: '<polygon points="50,10 90,50 50,90 10,50" fill="#6366f1"/>',
-      hexagon: '<polygon points="30,10 70,10 90,50 70,90 30,90 10,50" fill="#6366f1"/>',
-      star: '<polygon points="50,5 61,39 97,39 68,60 79,94 50,73 21,94 32,60 3,39 39,39" fill="#6366f1"/>',
-      arrowRight: '<path d="M10 35 L50 35 L50 15 L90 50 L50 85 L50 65 L10 65 Z" fill="#6366f1"/>',
-      heart: '<path d="M50 30 C50 30 45 10 25 10 C5 10 5 40 5 40 C5 60 50 90 50 90 C50 90 95 60 95 40 C95 40 95 10 75 10 C55 10 50 30 50 30 Z" fill="#6366f1"/>',
-      cloud: '<path d="M25 60 A20 20 0 0 1 45 40 A25 25 0 0 1 85 50 A15 15 0 0 1 85 80 L25 80 A10 10 0 0 1 25 60 Z" fill="#6366f1"/>'
-    };
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="120" height="120">${shapes[value] || shapes.rectangle}</svg>`;
-    const dataUri = 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg);
-    node.setAttribute('src', dataUri);
-    node.setAttribute('alt', value);
-    node.setAttribute('class', `shape-embed shape-${value}`);
-    // Ensure Quill treats it like an image for inline placement and resizing
-    node.classList.add('ql-image');
-    return node;
-  }
-  static value(node) {
-    // Prefer the explicit alt attribute which stores the shape name.
-    const alt = node.getAttribute('alt');
-    if (alt) return alt;
-    // Fallback: parse class list, ignoring the generic 'shape-embed' class.
-    const classAttr = node.getAttribute('class') || '';
-    const classes = classAttr.split(/\s+/);
-    const shapeClass = classes.find(c => c.startsWith('shape-') && c !== 'shape-embed');
-    return shapeClass ? shapeClass.replace('shape-', '') : '';
-  }
-}
-ShapeBlot.blotName = 'shape';
-ShapeBlot.tagName = 'img';
-ReactQuill.Quill.register(ShapeBlot, true);
-ReactQuill.Quill.register(ShapeBlot, true);
 
-// Custom Video Blot for Local Files
-const BlockEmbedVideo = ReactQuill.Quill.import('blots/block/embed');
-class LocalVideoBlot extends BlockEmbedVideo {
+class ShapeBlot extends BlockEmbed {
+  static blotName = 'shape';
+  static tagName = 'div';
+  static className = 'ql-shape-embed';
+
   static create(value) {
     const node = super.create();
     node.setAttribute('contenteditable', 'false');
-    node.className = 'video-container';
-    const video = document.createElement('video');
-    video.setAttribute('controls', true);
-    video.setAttribute('src', value);
-    video.setAttribute('style', 'max-width:100%;');
-    // Ensure safe playback without autoplay
-    video.setAttribute('playsinline', 'true');
-    video.muted = true;
-    video.autoplay = false;
-    // No automatic play to avoid AbortError
-    node.appendChild(video);
+    node.style.display = 'inline-block';
+    node.style.verticalAlign = 'middle';
+    node.style.userSelect = 'none';
+    node.dataset.shape = value.type || 'rectangle';
+    node.dataset.width = value.width || 120;
+    node.dataset.height = value.height || 80;
+    // create svg
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('width', node.dataset.width);
+    svg.setAttribute('height', node.dataset.height);
+    svg.setAttribute('viewBox', `0 0 ${node.dataset.width} ${node.dataset.height}`);
+    svg.style.display = 'block';
+    svg.style.pointerEvents = 'none';
+    svg.classList.add('ql-shape-svg');
+    // draw shape
+    const type = node.dataset.shape;
+    let el;
+    if (type === 'circle') {
+      el = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
+      el.setAttribute('cx', node.dataset.width/2);
+      el.setAttribute('cy', node.dataset.height/2);
+      el.setAttribute('rx', node.dataset.width/2 - 2);
+      el.setAttribute('ry', node.dataset.height/2 - 2);
+    } else if (type === 'triangle') {
+      el = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+      const w = node.dataset.width, h = node.dataset.height;
+      el.setAttribute('points', `${w/2},2 ${w-2},${h-2} 2,${h-2}`);
+    } else { // rectangle default
+      el = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+      el.setAttribute('x', 2);
+      el.setAttribute('y', 2);
+      el.setAttribute('width', node.dataset.width - 4);
+      el.setAttribute('height', node.dataset.height - 4);
+      el.setAttribute('rx', 4);
+    }
+    el.setAttribute('fill', value.fill || '#60a5fa');
+    svg.appendChild(el);
+    node.appendChild(svg);
+
+    // attach simple drag to float left/right (move) but do not change shape on drag
+    let startX = 0;
+    node.addEventListener('pointerdown', (ev) => {
+      if (ev.button !== 0) return;
+      startX = ev.clientX;
+      node.setPointerCapture(ev.pointerId);
+      const up = (e) => {
+        const dx = e.clientX - startX;
+        if (dx < -30) node.style.cssFloat = 'left';
+        else if (dx > 30) node.style.cssFloat = 'right';
+        else node.style.cssFloat = 'none';
+        try { node.releasePointerCapture(e.pointerId); } catch {};
+        window.removeEventListener('pointerup', up);
+      };
+      window.addEventListener('pointerup', up);
+    });
+
     return node;
   }
-  static value(node) {
-    const video = node.querySelector('video');
-    return video ? video.getAttribute('src') : '';
+
+  static value(domNode) {
+    return {
+      type: domNode.dataset.shape,
+      width: parseInt(domNode.dataset.width, 10),
+      height: parseInt(domNode.dataset.height, 10)
+    };
   }
 }
-LocalVideoBlot.blotName = 'localVideo';
-LocalVideoBlot.tagName = 'div';
-ReactQuill.Quill.register(LocalVideoBlot, true);
 
-// ── Global AbortError suppression (module-level, runs immediately) ──
-// When Quill re-renders the DOM (e.g. on text selection or formatting),
-// any embedded <video> elements are destroyed/recreated, causing the
-// browser to reject a pending play() promise with AbortError.
-// We suppress this at two levels so it never reaches the console.
-(function suppressVideoAbortError() {
-  // 1. Wrap HTMLMediaElement.play so every promise has a .catch()
-  const _origPlay = HTMLMediaElement.prototype.play;
-  HTMLMediaElement.prototype.play = function (...args) {
-    try {
-      const p = _origPlay.apply(this, args);
-      // If play returns a promise, attach a catch to swallow AbortError and
-      // rethrow other errors asynchronously so they don't become unhandled.
-      if (p && typeof p.then === 'function') {
-        p.catch(err => {
-          if (err && err.name === 'AbortError') return; // benign when element removed
-          setTimeout(() => { throw err; });
-        });
-      }
-      return p;
-    } catch (err) {
-      // Some browsers might throw synchronously; swallow AbortError and
-      // preserve other errors via rejected promise.
-      if (err && err.name === 'AbortError') return Promise.resolve();
-      return Promise.reject(err);
-    }
-  };
-  // 2. Catch any remaining unhandled rejections with name "AbortError"
-  window.addEventListener('unhandledrejection', (e) => {
-    try {
-      if (e.reason && e.reason.name === 'AbortError') {
-        e.preventDefault();
-      }
-    } catch (err) {
-      // ignore
-    }
-  });
-})();
+// Custom image blot overriding default image behavior to allow inline flow and resizing handles
+class CustomImageBlot extends BlockEmbed {
+  static blotName = 'image';
+  static tagName = 'div';
+  static className = 'ql-custom-image-wrapper';
 
-const ShapeDropdown = ({ pendingShape, onSelectShape }) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const dropdownRef = useRef(null);
+  static create(value) {
+    const node = super.create();
+    node.setAttribute('contenteditable', 'false');
+    node.style.display = 'inline-block';
+    node.style.verticalAlign = 'middle';
+    node.style.userSelect = 'none';
+    node.style.position = 'relative';
+    node.style.margin = '0 8px 8px 0';
 
-  useEffect(() => {
-    const handleOutsideClick = (e) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
-        setIsOpen(false);
-      }
+    const img = document.createElement('img');
+    img.className = 'ql-custom-image';
+    img.src = typeof value === 'string' ? value : (value.src || '');
+    img.style.display = 'block';
+    img.style.maxWidth = '100%';
+    img.style.height = 'auto';
+    img.setAttribute('draggable', 'false');
+    node.appendChild(img);
+
+    // Create 8 resize handles (no visible border box). Handles are tiny dots around image.
+    const handles = ['nw','n','ne','e','se','s','sw','w'].map((pos) => {
+      const h = document.createElement('div');
+      h.className = `ql-resize-handle ql-handle-${pos}`;
+      h.style.position = 'absolute';
+      h.style.width = '10px'; h.style.height = '10px';
+      h.style.background = 'white'; h.style.border = '1px solid rgba(0,0,0,0.15)';
+      h.style.borderRadius = '50%'; h.style.boxSizing = 'border-box';
+      h.style.transform = 'translate(-50%, -50%)';
+      h.style.cursor = 'nwse-resize';
+      h.style.zIndex = '10';
+      h.style.display = 'none';
+      node.appendChild(h);
+      return { pos, el: h };
+    });
+
+    const positionHandles = () => {
+      const rect = img.getBoundingClientRect();
+      // calculate relative positions
+      const w = img.offsetWidth; const hgt = img.offsetHeight;
+      const coords = {
+        nw: [0,0], n: [w/2,0], ne: [w,0], e: [w,hgt/2], se: [w,hgt], s: [w/2,hgt], sw: [0,hgt], w: [0,hgt/2]
+      };
+      handles.forEach(h => {
+        const [x,y] = coords[h.pos];
+        h.el.style.left = `${x}px`;
+        h.el.style.top = `${y}px`;
+      });
     };
-    document.addEventListener("mousedown", handleOutsideClick);
-    return () => document.removeEventListener("mousedown", handleOutsideClick);
-  }, []);
 
-  const shapes = [
-    { value: "rectangle", label: "Rectangle", path: "M10 10 H 90 V 90 H 10 Z" },
-    { value: "circle", label: "Circle", path: "M 50, 50 m -40, 0 a 40,40 0 1,0 80,0 a 40,40 0 1,0 -80,0" },
-    { value: "triangle", label: "Triangle", path: "M 50 10 L 90 90 L 10 90 Z" },
-    { value: "diamond", label: "Diamond", path: "M 50 10 L 90 50 L 50 90 L 10 50 Z" },
-    { value: "hexagon", label: "Hexagon", path: "M 30 10 L 70 10 L 90 50 L 70 90 L 30 90 L 10 50 Z" },
-    { value: "star", label: "Star", path: "M 50 5 L 61 39 L 97 39 L 68 60 L 79 94 L 50 73 L 21 94 L 32 60 L 3 39 L 39 39 Z" },
-    { value: "arrowRight", label: "Arrow", path: "M 10 35 L 50 35 L 50 15 L 90 50 L 50 85 L 50 65 L 10 65 Z" },
-    { value: "heart", label: "Heart", path: "M 50 30 C 50 30 45 10 25 10 C 5 10 5 40 5 40 C 5 60 50 90 50 90 C 50 90 95 60 95 40 C 95 40 95 10 75 10 C 55 10 50 30 50 30 Z" },
-    { value: "cloud", label: "Cloud", path: "M 25 60 A 20 20 0 0 1 45 40 A 25 25 0 0 1 85 50 A 15 15 0 0 1 85 80 L 25 80 A 10 10 0 0 1 25 60 Z" }
-  ];
+    // show handles on click/focus, hide on blur
+    node.addEventListener('click', (e) => {
+      handles.forEach(h => h.el.style.display = 'block');
+      positionHandles();
+      e.stopPropagation();
+    });
+    document.addEventListener('click', () => { handles.forEach(h => h.el.style.display = 'none'); });
 
-  return (
-    <div className="custom-shape-picker-container" ref={dropdownRef}>
-      <div
-        role="button"
-        tabIndex={0}
-        className={`shape-picker-toggle ${pendingShape ? 'active' : ''}`}
-        onClick={() => setIsOpen(!isOpen)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            setIsOpen(!isOpen);
-            e.preventDefault();
+    // Resize logic
+    handles.forEach(h => {
+      let startX, startY, startW, startH, startAspect;
+      const onPointerDown = (ev) => {
+        ev.preventDefault(); ev.stopPropagation();
+        startX = ev.clientX; startY = ev.clientY;
+        startW = img.offsetWidth; startH = img.offsetHeight; startAspect = startW / startH;
+        h.el.setPointerCapture(ev.pointerId);
+        const move = (e) => {
+          let dx = e.clientX - startX, dy = e.clientY - startY;
+          let newW = startW, newH = startH;
+          if (['nw','ne','se','sw'].includes(h.pos)) {
+            // preserve aspect ratio for corner handles
+            if (Math.abs(dx) > Math.abs(dy)) newW = startW + (h.pos.includes('w') ? -dx : dx);
+            else newH = startH + (h.pos.includes('n') ? -dy : dy);
+            // sync to aspect
+            newW = Math.max(10, newW);
+            newH = Math.max(10, Math.round(newW / startAspect));
+          } else if (h.pos === 'n' || h.pos === 's') {
+            newH = Math.max(10, startH + (h.pos === 'n' ? -dy : dy));
+          } else { // e or w
+            newW = Math.max(10, startW + (h.pos === 'w' ? -dx : dx));
           }
-        }}
-        title={pendingShape ? `Shape loaded: Click editor to insert ${pendingShape}` : "Insert Shape"}
-      >
-        <span className="flex items-center gap-1.5">
-          <svg viewBox="0 0 24 24" className="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M12 2L2 22h20L12 2z M12 6l6 11H6l6-11z" fill="currentColor" fillOpacity="0.1"/>
-          </svg>
-          <span className="text-xs font-medium">
-            {pendingShape ? shapes.find(s => s.value === pendingShape)?.label : "Shape"}
-          </span>
-        </span>
-        <svg className={`chevron-icon ${isOpen ? 'open' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M6 9l6 6 6-6" />
-        </svg>
-      </div>
+          img.style.width = `${newW}px`;
+          img.style.height = 'auto';
+          positionHandles();
+        };
+        const up = (e) => { try { h.el.releasePointerCapture(e.pointerId); } catch {} ; window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', up);
+      };
+      h.el.addEventListener('pointerdown', onPointerDown);
+    });
 
-      {isOpen && (
-        <div className="shape-picker-dropdown">
-          {shapes.map((shape) => (
-            <div
-              key={shape.value}
-              role="button"
-              tabIndex={0}
-              className="shape-picker-item"
-              onClick={() => {
-                onSelectShape(shape.value);
-                setIsOpen(false);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  onSelectShape(shape.value);
-                  setIsOpen(false);
-                  e.preventDefault();
-                }
-              }}
-            >
-              <svg viewBox="0 0 100 100" className="w-5 h-5 shape-preview-svg">
-                <path d={shape.path} fill="currentColor" />
-              </svg>
-              <span>{shape.label}</span>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-};
+    // Simple horizontal drag to float left/right (move within flow) when user drags the image wrapper
+    let dragStartX = 0;
+    node.addEventListener('pointerdown', (ev) => {
+      if (ev.target.classList.contains('ql-resize-handle')) return; // resize handles manage their own
+      dragStartX = ev.clientX;
+      node.setPointerCapture(ev.pointerId);
+      const up = (e) => {
+        const dx = e.clientX - dragStartX;
+        if (dx < -30) node.style.cssFloat = 'left';
+        else if (dx > 30) node.style.cssFloat = 'right';
+        else node.style.cssFloat = 'none';
+        try { node.releasePointerCapture(e.pointerId); } catch {};
+        window.removeEventListener('pointerup', up);
+      };
+      window.addEventListener('pointerup', up);
+    });
 
-const TextStyleToolbarRow = () => {
-  return (
-    <div className="toolbar-row">
-      <span className="ql-formats">
-        <select className="ql-font" defaultValue="inter" title="Font Family">
-          {Font.whitelist.map(font => <option value={font} key={font}>{font}</option>)}
-        </select>
-        <select className="ql-size" defaultValue="16px" title="Font Size">
-          {Size.whitelist.map(size => <option value={size} key={size}>{size}</option>)}
-        </select>
-      </span>
+    return node;
+  }
 
-      <div className="toolbar-divider"></div>
-
-      <span className="ql-formats">
-        <button className="ql-bold" title="Bold (Ctrl+B)" />
-        <button className="ql-italic" title="Italic (Ctrl+I)" />
-        <button className="ql-underline" title="Underline (Ctrl+U)" />
-        <button className="ql-strike" title="Strikethrough" />
-        <button className="ql-script" value="sub" title="Subscript" />
-        <button className="ql-script" value="super" title="Superscript" />
-      </span>
-
-      <div className="toolbar-divider"></div>
-
-      <span className="ql-formats">
-        <select className="ql-color" title="Text Color">
-          {colors.map((c, i) => <option value={c} key={`color-${i}`}></option>)}
-        </select>
-        <select className="ql-background" title="Highlight Color">
-          {colors.map((c, i) => <option value={c} key={`bg-${i}`}></option>)}
-        </select>
-      </span>
-
-      <div className="toolbar-divider"></div>
-
-      <span className="ql-formats">
-        <button className="ql-clean" title="Clear Formatting" />
-      </span>
-    </div>
-  );
-};
-
-const ActionsInsertToolbarRow = ({ onUndo, onRedo, onSave, pendingShape, onSelectShape }) => {
-  return (
-    <div className="toolbar-row">
-      <span className="ql-formats">
-        <button onClick={onUndo} title="Undo (Ctrl+Z)" className="toolbar-action-btn">
-          <svg viewBox="0 0 18 18">
-            <path className="ql-fill ql-stroke" d="M4.5,9a5.5,5.5,0,1,1,11,0v3.5H13V9a3.5,3.5,0,1,0-7,0v.5h2L4.5,13,1,9.5h2V9Z"/>
-          </svg>
-        </button>
-        <button onClick={onRedo} title="Redo (Ctrl+Y)" className="toolbar-action-btn">
-          <svg viewBox="0 0 18 18">
-            <path className="ql-fill ql-stroke" d="M13.5,9a5.5,5.5,0,1,0-11,0v3.5H4.5V9a3.5,3.5,0,1,1,7,0v.5h-2L13.5,13l3.5-3.5h-2V9Z"/>
-          </svg>
-        </button>
-        <button onClick={onSave} title="Force Save (Ctrl+S)" className="toolbar-save-btn">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ width: '18px', height: '18px' }}>
-            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
-            <polyline points="17 21 17 13 7 13 7 21"></polyline>
-            <polyline points="7 3 7 8 15 8"></polyline>
-          </svg>
-        </button>
-      </span>
-
-      <div className="toolbar-divider"></div>
-
-      <span className="ql-formats">
-        <button className="ql-list" value="ordered" title="Numbered List" />
-        <button className="ql-list" value="bullet" title="Bullet List" />
-        <button className="ql-list" value="check" title="Checklist" />
-      </span>
-
-      <div className="toolbar-divider"></div>
-
-      <span className="ql-formats">
-        <button className="ql-align" value="" title="Align Left" />
-        <button className="ql-align" value="center" title="Align Center" />
-        <button className="ql-align" value="right" title="Align Right" />
-        <button className="ql-align" value="justify" title="Justify" />
-      </span>
-
-      <div className="toolbar-divider"></div>
-
-      <span className="ql-formats">
-        <button className="ql-indent" value="-1" title="Decrease Indent" />
-        <button className="ql-indent" value="+1" title="Increase Indent" />
-        <button className="ql-direction" value="rtl" title="Right-to-Left Direction" />
-      </span>
-
-      <div className="toolbar-divider"></div>
-
-      <span className="ql-formats">
-        <button className="ql-link" title="Insert Link" />
-        <button className="ql-image" title="Insert Image" />
-        <button className="ql-video" title="Insert Video" />
-        <button className="ql-formula" title="Insert Formula" />
-      </span>
-
-      <div className="toolbar-divider"></div>
-
-      <span className="ql-formats">
-        <button className="ql-blockquote" title="Blockquote" />
-        <button className="ql-code-block" title="Code Block" />
-      </span>
-
-      <div className="toolbar-divider"></div>
-
-      <span className="ql-formats">
-        <ShapeDropdown pendingShape={pendingShape} onSelectShape={onSelectShape} />
-      </span>
-    </div>
-  );
-};
-
-const CustomToolbar = ({ onUndo, onRedo, onSave, pendingShape, onSelectShape }) => {
-  return (
-    <div id="custom-toolbar" className="custom-toolbar-modern-split">
-      <TextStyleToolbarRow />
-      <div className="toolbar-row-divider" />
-      <ActionsInsertToolbarRow 
-        onUndo={onUndo} 
-        onRedo={onRedo} 
-        onSave={onSave} 
-        pendingShape={pendingShape} 
-        onSelectShape={onSelectShape} 
-      />
-    </div>
-  );
+  static value(domNode) {
+    const img = domNode.querySelector('img');
+    return img ? img.src : '';
+  }
 }
 
-const modules = {
+ReactQuill.Quill.register(ShapeBlot);
+ReactQuill.Quill.register(CustomImageBlot);
+
+// safe helper to get the Quill editor instance without throwing if not yet instantiated
+const safeGetEditor = (ref) => {
+  try {
+    return ref?.current?.getEditor ? ref.current.getEditor() : null;
+  } catch (err) {
+    return null;
+  }
+};
+
+const colors = ["", "#000000", "#e60000", "#ff9900", "#ffff00", "#008a00", "#0066cc", "#9933ff", "#4f46e5"];
+
+// Small CustomToolbar component used by the editor
+const CustomToolbar = ({ onUndo, onRedo, onSave, onOpenFormatDialog }) => {
+  return (
+    <div id="custom-toolbar" className="custom-ribbon bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-10 w-full flex justify-center shadow-sm">
+      <div className="flex items-center justify-between w-full max-w-[850px] mx-auto py-1.5 px-4">
+        <div className="flex items-center gap-2">
+          <span className="ql-formats !mr-1">
+            <button onClick={onUndo} className="toolbar-action-btn flex items-center justify-center text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors h-8 w-8" title="Undo">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
+            </button>
+            <button onClick={onRedo} className="toolbar-action-btn flex items-center justify-center text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors h-8 w-8" title="Redo">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/></svg>
+            </button>
+            <button onClick={onSave} className="toolbar-save-btn flex items-center justify-center text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors h-8 w-8 ml-1" title="Save">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+            </button>
+          </span>
+          <div className="w-px h-5 bg-slate-200 mx-1"></div>
+          <span className="ql-formats">
+            <select className="ql-font" defaultValue="inter" title="Font Family">
+              {Font.whitelist.map(f => <option value={f} key={f}>{f}</option>)}
+            </select>
+            <select className="ql-size" defaultValue="16px" title="Font Size">
+              {Size.whitelist.map(s => <option value={s} key={s}>{s}</option>)}
+            </select>
+            <select className="ql-shape" defaultValue="" title="Insert Shape">
+              <option value="">Shape</option>
+              <option value="rectangle">Rectangle</option>
+              <option value="circle">Circle</option>
+              <option value="triangle">Triangle</option>
+              <option value="diamond">Diamond</option>
+              <option value="hexagon">Hexagon</option>
+              <option value="star">Star</option>
+              <option value="arrowRight">Arrow</option>
+              <option value="heart">Heart</option>
+            </select>
+          </span>
+          <div className="w-px h-5 bg-slate-200 mx-1"></div>
+          <span className="ql-formats !mr-1">
+            <button className="ql-bold hover:bg-indigo-50 rounded" title="Bold" />
+            <button className="ql-italic hover:bg-indigo-50 rounded" title="Italic" />
+            <button className="ql-underline hover:bg-indigo-50 rounded" title="Underline" />
+          </span>
+        </div>
+        <div className="flex items-center">
+          <span className="ql-formats !mr-0">
+            <button onClick={onOpenFormatDialog} className="toolbar-action-btn flex items-center justify-center text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-md px-3 py-1.5 w-auto gap-1.5 text-xs font-semibold transition-all shadow-sm" title="Advanced Format">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>
+              Format Text
+            </button>
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const modulesFactory = (quillRef, setPendingShape) => ({
   toolbar: {
     container: "#custom-toolbar",
     handlers: {
-      // Ensure font and size selects reliably apply formatting even if
-      // the toolbar DOM wasn't fully wired by Quill in some environments.
       font: function(value) {
-        try {
-          console.log('[DEBUG] toolbar.font handler, value=', value);
-          if (!value) return;
-          const range = this.quill.getSelection();
-          if (range && range.length > 0) {
-            this.quill.formatText(range.index, range.length, 'font', value, 'user');
-          } else {
-            this.quill.format('font', value, 'user');
-          }
-        } catch (err) { console.error('[DEBUG] toolbar.font error', err); }
+        if (!value) return;
+        const range = this.quill.getSelection();
+        this.quill.focus();
+        if (range && range.length > 0) this.quill.formatText(range.index, range.length, 'font', value, 'user');
+        else this.quill.format('font', value, 'user');
       },
       size: function(value) {
-        try {
-          console.log('[DEBUG] toolbar.size handler, value=', value);
-          if (!value) return;
-          const range = this.quill.getSelection();
-          if (range && range.length > 0) {
-            this.quill.formatText(range.index, range.length, 'size', value, 'user');
-          } else {
-            this.quill.format('size', value, 'user');
-          }
-        } catch (err) { console.error('[DEBUG] toolbar.size error', err); }
+        if (!value) return;
+        const range = this.quill.getSelection();
+        this.quill.focus();
+        if (range && range.length > 0) this.quill.formatText(range.index, range.length, 'size', value, 'user');
+        else this.quill.format('size', value, 'user');
       },
-      video: function(value) {
-        // Open file picker for local video upload
-        const input = document.createElement('input');
-        input.setAttribute('type', 'file');
-        input.setAttribute('accept', 'video/*');
-        input.onchange = () => {
-          const file = input.files[0];
-          if (file) {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-              const range = this.quill.getSelection(true);
-              const index = range ? range.index : this.quill.getLength() - 1;
-              this.quill.insertEmbed(index, 'localVideo', e.target.result, 'user');
-              this.quill.setSelection(index + 1);
-            };
-            reader.readAsDataURL(file);
-          } else {
-            // Fallback to URL prompt if no file selected
-            const url = prompt('Enter video URL (e.g., YouTube, MP4 link):');
-            if (url) {
-              const range = this.quill.getSelection(true);
-              const index = range ? range.index : this.quill.getLength() - 1;
-              this.quill.insertEmbed(index, 'video', url, 'user');
-              this.quill.setSelection(index + 1);
-            }
-          }
-        };
-        input.click();
+      shape: function(value) {
+        if (!value) return;
+        const range = this.quill.getSelection(true);
+        const index = range ? range.index : this.quill.getLength();
+        // default size
+        const payload = { type: value, width: 120, height: 80, fill: '#60a5fa' };
+        this.quill.insertEmbed(index, 'shape', payload, 'user');
+        this.quill.setSelection(index + 1, 0);
+        const shapeSelect = document.querySelector('.ql-shape'); if (shapeSelect) shapeSelect.value = '';
       },
       image: function() {
-        // Open file picker for local image upload
-        const input = document.createElement('input');
-        input.setAttribute('type', 'file');
-        input.setAttribute('accept', 'image/*');
+        const input = document.createElement('input'); input.type = 'file'; input.accept = 'image/*';
         input.onchange = () => {
-          const file = input.files[0];
-          if (file) {
-            const reader = new FileReader();
-            reader.onload = (e) => {
-              const range = this.quill.getSelection(true);
-              const index = range ? range.index : this.quill.getLength() - 1;
-              this.quill.insertEmbed(index, 'image', e.target.result, 'user');
-              this.quill.setSelection(index + 1);
-            };
-            reader.readAsDataURL(file);
-          }
+          const file = input.files[0]; if (!file) return; const reader = new FileReader();
+          reader.onload = (e) => {
+            const quill = safeGetEditor(quillRef); if (!quill) return;
+            const range = quill.getSelection(true); const index = range ? range.index : quill.getLength() - 1;
+            quill.insertEmbed(index, 'image', e.target.result, 'user'); quill.setSelection(index + 1);
+          };
+          reader.readAsDataURL(file);
         };
         input.click();
       }
     }
   },
-  history: {
-    delay: 1000,
-    maxStack: 100,
-    userOnly: true
-  },
-  clipboard: {
-    matchVisual: false, // Prevent extra whitespace on paste
-  },
-};
+  history: { delay: 1000, maxStack: 100, userOnly: true },
+  clipboard: { matchVisual: false }
+});
 
 const formats = [
   "font", "size", "header",
@@ -460,997 +350,430 @@ const formats = [
   "list",
   "blockquote", "code-block",
   "link", "image", "video", "formula",
-  "shape", "localVideo",
+  "shape",
 ];
+
+// Inject minimal CSS for image handles and shape SVG styling once
+if (typeof document !== 'undefined' && !document.getElementById('quill-custom-styles')) {
+  const style = document.createElement('style');
+  style.id = 'quill-custom-styles';
+  style.innerHTML = `
+    .ql-custom-image-wrapper { display:inline-block; vertical-align:middle; margin:0 8px 8px 0; }
+    .ql-custom-image-wrapper img { display:block; max-width:600px; height:auto; }
+    .ql-custom-image-wrapper .ql-resize-handle { display:none; }
+    /* shown only when wrapper is selected; handled via JS click events */
+    .ql-shape-embed { display:inline-block; vertical-align:middle; margin:0 8px 8px 0; }
+    .ql-shape-embed .ql-shape-svg { display:block; }
+  `;
+  document.head.appendChild(style);
+}
 
 const EditorPage = () => {
   const { id: documentId } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
   const quillRef = useRef(null);
+
+  // Basic states
   const [socket, setSocket] = useState(null);
   const [isSocketConnected, setIsSocketConnected] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [lastSavedAt, setLastSavedAt] = useState(null);
-  const [documentTitle, setDocumentTitle] = useState("Untitled Document");
+  const [documentTitle, setDocumentTitle] = useState('Untitled Document');
   const [isEditingTitle, setIsEditingTitle] = useState(false);
-  const [titleInput, setTitleInput] = useState("");
+  const [titleInput, setTitleInput] = useState('');
   const [activeUsers, setActiveUsers] = useState([]);
-  const [typingUser, setTypingUser] = useState("");
-  const [shareEmail, setShareEmail] = useState("");
-
-  // Selection overlay and image/shape selection state
-  const [selectedImg, setSelectedImg] = useState(null);
-  const [overlayStyle, setOverlayStyle] = useState({ display: 'none' });
-  const [showCollabModal, setShowCollabModal] = useState(false);
-  const [collabInfo, setCollabInfo] = useState({ owner: null, collaborators: [], pendingCollaborators: [] });
-  // Pending shape selected from toolbar: stored until user clicks in editor to insert
+  const [typingUser, setTypingUser] = useState('');
+  const [shareEmail, setShareEmail] = useState('');
+  const [shareLoading, setShareLoading] = useState(false);
+  const [shareMessage, setShareMessage] = useState('');
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [collaboratorsList, setCollaboratorsList] = useState([]);
+  const [shareLink, setShareLink] = useState('');
+  const [linkCopied, setLinkCopied] = useState(false);
   const [pendingShape, setPendingShape] = useState(null);
-  // Expose setter globally so Quill toolbar handler (module handlers.shape) can set it
+  useEffect(() => { window.__REACT_SHAPE_SETTER__ = setPendingShape; return () => { if (window.__REACT_SHAPE_SETTER__ === setPendingShape) delete window.__REACT_SHAPE_SETTER__; }; }, [setPendingShape]);
+
+  // Format dialog hooks
+  const [formatDialogOpen, setFormatDialogOpen] = useState(false);
+  const [formatRange, setFormatRange] = useState(null);
+  const [dialogFont, setDialogFont] = useState('');
+  const [dialogSize, setDialogSize] = useState('');
+  const [dialogColor, setDialogColor] = useState('');
+
+  // modules use quillRef
+  const modules = modulesFactory(quillRef, setPendingShape);
+
+  // Basic socket connection (lightweight)
   useEffect(() => {
-    window.__REACT_SHAPE_SETTER__ = setPendingShape;
-    return () => { if (window.__REACT_SHAPE_SETTER__ === setPendingShape) delete window.__REACT_SHAPE_SETTER__; };
-  }, []);
-
-  // When a shape is selected, insert it at current cursor position
-  useEffect(() => {
-    if (!pendingShape) return;
-    const quill = quillRef.current?.getEditor();
-      if (quill) {
-        const range = quill.getSelection(true);
-        const index = range ? range.index : quill.getLength();
-        quill.insertEmbed(index, 'shape', pendingShape, 'user');
-        quill.setSelection(index + 1, ReactQuill.Quill.sources.SILENT);
-        setPendingShape(null);
-      }
-  }, [pendingShape]);
-
-  // Quill's native toolbar module automatically wires up all dropdown controls (Font, Size, Color, Background)
-  // and handles selection/formatting natively. Custom DOM listeners have been removed to prevent race conditions.
-
-  const reposition = useCallback(() => {
-    if (!selectedImg || !document.body.contains(selectedImg)) {
-      setSelectedImg(null);
-      setOverlayStyle({ display: 'none' });
-      return;
-    }
-    const imgRect = selectedImg.getBoundingClientRect();
-    const editorWrapper = document.querySelector('.editor-wrapper');
-    if (!editorWrapper) return;
-    const wrapperRect = editorWrapper.getBoundingClientRect();
-    
-    setOverlayStyle({
-      top: imgRect.top - wrapperRect.top,
-      left: imgRect.left - wrapperRect.left,
-      width: imgRect.width,
-      height: imgRect.height,
-      display: 'block'
-    });
-  }, [selectedImg]);
-
-  const handleMouseDown = (e, direction) => {
-    e.preventDefault();
-    e.stopPropagation();
-
-    const startX = e.clientX;
-    const startY = e.clientY;
-    const startWidth = selectedImg.clientWidth;
-    const startHeight = selectedImg.clientHeight;
-    const aspectRatio = startWidth / startHeight;
-
-    const handleMouseMove = (moveEvent) => {
-      const dx = moveEvent.clientX - startX;
-      const dy = moveEvent.clientY - startY;
-
-      let newWidth = startWidth;
-      let newHeight = startHeight;
-
-      // Corner handles — preserve aspect ratio
-      if (direction === 'br') { newWidth = startWidth + dx; newHeight = newWidth / aspectRatio; }
-      else if (direction === 'bl') { newWidth = startWidth - dx; newHeight = newWidth / aspectRatio; }
-      else if (direction === 'tr') { newWidth = startWidth + dx; newHeight = newWidth / aspectRatio; }
-      else if (direction === 'tl') { newWidth = startWidth - dx; newHeight = newWidth / aspectRatio; }
-      // Edge handles — single axis
-      else if (direction === 'mr') { newWidth = startWidth + dx; newHeight = startHeight; }
-      else if (direction === 'ml') { newWidth = startWidth - dx; newHeight = startHeight; }
-      else if (direction === 'mb') { newHeight = startHeight + dy; newWidth = startWidth; }
-      else if (direction === 'mt') { newHeight = startHeight - dy; newWidth = startWidth; }
-
-      if (newWidth < 40) newWidth = 40;
-      if (newHeight < 40) newHeight = 40;
-
-      // Only resize if the selected element is an IMG (not a shape container)
-      if (selectedImg.tagName === 'IMG') {
-        selectedImg.style.width = `${newWidth}px`;
-        selectedImg.style.height = `${newHeight}px`;
-      }
-
-      reposition();
-    };
-
-    const handleMouseUp = () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-
-      const finalWidth = selectedImg.clientWidth;
-      const finalHeight = selectedImg.clientHeight;
-      const blot = ReactQuill.Quill.find(selectedImg);
-      if (blot) {
-        blot.format('width', `${finalWidth}px`);
-        blot.format('height', `${finalHeight}px`);
-      }
-    };
-
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-  };
-
-  /**
-   * Drag-to-move: drags the overlay and on mouseup finds the Quill
-   * document index under the cursor, deletes the embed from its original
-   * position, and re-inserts it at the new position.
-   */
-  const handleMoveMouseDown = (e) => {
-    e.preventDefault();
-    if (!selectedImg) return;
-
-    // Record original embed information for later replacement
-    const quill = quillRef.current?.getEditor();
-    if (!quill) return;
-    const blot = ReactQuill.Quill.find(selectedImg);
-    const originalIndex = blot ? quill.getIndex(blot) : null;
-    const originalDelta = blot?.value();
-
-    // Detect if this is a shape embed (shapes are <img> tags but have class 'shape-embed')
-    const isShapeEmbed = selectedImg.classList.contains('shape-embed');
-    // Only store explicit dimensions for real images, never for SVG shape embeds
-    const originalWidth = (!isShapeEmbed && selectedImg.style.width) ? selectedImg.style.width : null;
-    const originalHeight = (!isShapeEmbed && selectedImg.style.height) ? selectedImg.style.height : null;
-    
-    // Record original overlay position offsets for ghost movement
-    const editorWrapper = document.querySelector('.editor-wrapper');
-    const wrapperRect = editorWrapper?.getBoundingClientRect() || { top: 0, left: 0 };
-    const imgRect = selectedImg.getBoundingClientRect();
-    const startMouseX = e.clientX;
-    const startMouseY = e.clientY;
-    const startOverlayTop = imgRect.top - wrapperRect.top;
-    const startOverlayLeft = imgRect.left - wrapperRect.left;
-    const overlayW = imgRect.width;
-    const overlayH = imgRect.height;
-
-    // Show a ghost overlay so user can see where they're dragging
-    const ghost = document.createElement('div');
-    ghost.style.cssText = `
-      position:absolute;
-      width:${overlayW}px;
-      height:${overlayH}px;
-      top:${startOverlayTop}px;
-      left:${startOverlayLeft}px;
-      border:2px dashed #f59e0b;
-      background:rgba(245,158,11,0.12);
-      pointer-events:none;
-      z-index:200;
-      border-radius:4px;
-      box-sizing:border-box;
-    `;
-    editorWrapper?.appendChild(ghost);
-
-    const handleMoveMove = (moveEvent) => {
-      const dx = moveEvent.clientX - startMouseX;
-      const dy = moveEvent.clientY - startMouseY;
-
-      // Clamp ghost inside the editor wrapper so shape can't escape
-      const wRect = editorWrapper?.getBoundingClientRect() || { width: 9999, height: 9999 };
-      const maxLeft = wRect.width  - overlayW;
-      const maxTop  = wRect.height - overlayH;
-      const clampedLeft = Math.max(0, Math.min(startOverlayLeft + dx, maxLeft));
-      const clampedTop  = Math.max(0, Math.min(startOverlayTop  + dy, maxTop));
-
-      ghost.style.top  = `${clampedTop}px`;
-      ghost.style.left = `${clampedLeft}px`;
-
-      // Update ghost position only
-    };
-
-    const handleMoveUp = (upEvent) => {
-  
-      // Clean up listeners and ghost overlay
-      document.removeEventListener('mousemove', handleMoveMove);
-      document.removeEventListener('mouseup', handleMoveUp);
-      ghost.remove();
-
-      // Compute wrapper bounds (no scroll offset needed)
-      const wrapperRect = editorWrapper?.getBoundingClientRect() || { left: 0, top: 0, width: 0, height: 0 };
-      const right = wrapperRect.left + wrapperRect.width;
-      const bottom = wrapperRect.top + wrapperRect.height;
-
-      // Clamp the drop point to stay within the editor content area
-      const clampedX = Math.max(wrapperRect.left, Math.min(upEvent.clientX, right - 1));
-      const clampedY = Math.max(wrapperRect.top, Math.min(upEvent.clientY, bottom - 1));
-
-      // Calculate the offset of the image relative to the wrapper (no scroll offset)
-      const rawLeft = clampedX - wrapperRect.left - overlayW / 2;
-      const rawTop  = clampedY - wrapperRect.top  - overlayH / 2;
-      const finalLeft = Math.max(0, Math.min(rawLeft, wrapperRect.width - overlayW));
-      const finalTop  = Math.max(0, Math.min(rawTop,  wrapperRect.height - overlayH));
-
-        // Compute drop index based on mouse location
-        // Compute drop index based on mouse location using leaf blot
-        let dropIndex = 0;
-        const range = document.caretRangeFromPoint(upEvent.clientX, upEvent.clientY);
-        const quill = quillRef.current?.getEditor();
-        if (quill && range) {
-          const leafInfo = quill.getLeaf(range.startContainer);
-          if (leafInfo && leafInfo[0]) {
-            dropIndex = quill.getIndex(leafInfo[0]);
-          }
-        }
-        // Adjust dropIndex if original embed is before it (deletion shifts indices)
-        if (originalIndex !== null && originalIndex < dropIndex) {
-          dropIndex = dropIndex - 1;
-        }
-        // Remove the original embed
-        if (quill && typeof originalIndex === 'number') {
-          quill.deleteText(originalIndex, 1, 'user');
-        }
-        // Insert the shape embed at the new position with the stored delta
-        if (quill && originalDelta) {
-          quill.insertEmbed(dropIndex, 'shape', originalDelta, 'user');
-          // Move cursor after the inserted shape
-          quill.setSelection(dropIndex + 1, 0, 'silent');
-        }
-        // Retrieve the newly inserted DOM element to apply positioning and size
-        const [leaf] = quill.getLeaf(dropIndex);
-        const newImg = leaf?.domNode;
-        // Apply positioning to the re-inserted element
-        if (newImg) {
-          const isNewShapeEmbed = newImg.classList.contains('shape-embed');
-          newImg.style.position = 'absolute';
-          newImg.style.left = `${finalLeft}px`;
-          newImg.style.top = `${finalTop}px`;
-          if (isNewShapeEmbed) {
-            // Clear any inline size so the SVG uses its own width/height attributes
-            newImg.style.width = '';
-            newImg.style.height = '';
-          } else {
-            // For real images, restore the stored explicit dimensions
-            if (originalWidth) newImg.style.width = originalWidth;
-            if (originalHeight) newImg.style.height = originalHeight;
-          }
-        }
-        // Update selectedImg reference for overlay repositioning
-        setSelectedImg(newImg);
-          reposition();
-
-    };
-
-    // Attach listeners for moving
-    document.addEventListener('mousemove', handleMoveMove);
-    document.addEventListener('mouseup', handleMoveUp);
-  };
-
-  /* Listen to clicks inside editor to select image */
-  useEffect(() => {
-  const editor = quillRef.current?.getEditor();
-  if (!editor) return;
-  const handleEditorClick = (e) => {
-    const quill = quillRef.current?.getEditor();
-    if (!quill) return;
-    if (e.target.tagName === 'IMG') {
-      setSelectedImg(e.target);
-      return;
-    }
-    // Check if a shape container was clicked
-    const shapeElem = e.target.closest('.shape-container');
-    if (shapeElem) {
-      setSelectedImg(shapeElem);
-      return;
-    }
-    // If a pending shape is set, insert it at cursor
-    if (pendingShape) {
-      const range = quill.getSelection(true);
-      const index = range ? range.index : quill.getLength();
-      quill.insertEmbed(index, 'shape', pendingShape, 'user');
-      // Undo will now correctly remove the shape insertion
-      quill.setSelection(index + 1, ReactQuill.Quill.sources.SILENT);
-      setPendingShape(null);
-      return;
-    }
-    setSelectedImg(null);
-  };
-
-  const root = editor.root;
-  root.addEventListener('click', handleEditorClick);
-  return () => {
-    root.removeEventListener('click', handleEditorClick);
-  };
-}, [pendingShape]);
-
-  /* Monitor selection scroll/resize and escape key */
-  useEffect(() => {
-    if (!selectedImg) {
-      setOverlayStyle({ display: "none" });
-      return;
-    }
-    
-    const qlContainer = selectedImg.closest('.ql-container');
-    if (!qlContainer) return;
-    
-    qlContainer.addEventListener('scroll', reposition);
-    window.addEventListener('resize', reposition);
-    
-    const handleKeyDown = (e) => {
-      if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'Delete') {
-        if (e.key === 'Escape') {
-          setSelectedImg(null);
-        } else {
-          // If deleted, hide overlay after a tick
-          setTimeout(reposition, 0);
-        }
-      }
-    };
-    
-    window.addEventListener('keydown', handleKeyDown);
-    
-    // Initial position
-    reposition();
-    
-    return () => {
-      qlContainer.removeEventListener('scroll', reposition);
-      window.removeEventListener('resize', reposition);
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [selectedImg, reposition]);
-
-  /* SOCKET CONNECTION */
-  useEffect(() => {
-    const s = io(import.meta.env.VITE_BACKEND_URL || "http://localhost:4000", {
-      withCredentials: true,
-    });
-
+    const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
+    const s = io(backendUrl, { withCredentials: true });
     setSocket(s);
-    // Track connection state and update UI
     setIsSocketConnected(!!s.connected);
     const onConnect = () => setIsSocketConnected(true);
     const onDisconnect = () => setIsSocketConnected(false);
-    const onConnectError = () => setIsSocketConnected(false);
-    s.on('connect', onConnect);
-    s.on('disconnect', onDisconnect);
-    s.on('connect_error', onConnectError);
-
-    return () => {
-      s.off('connect', onConnect);
-      s.off('disconnect', onDisconnect);
-      s.off('connect_error', onConnectError);
-      s.disconnect();
-    };
+    s.on('connect', onConnect); s.on('disconnect', onDisconnect);
+    return () => { s.off('connect', onConnect); s.off('disconnect', onDisconnect); s.disconnect(); };
   }, []);
 
-  /* SOCKET DOCUMENT RENAMED */
+  // Load document once socket + quill available
   useEffect(() => {
-    if (!socket) return;
-    const renamedHandler = ({ title }) => {
-      setDocumentTitle(title);
-    };
-    socket.on('document-renamed', renamedHandler);
-    return () => {
-      socket.off('document-renamed', renamedHandler);
-    };
-  }, [socket]);
-
-  /*  LOAD DOCUMENT */
-  useEffect(() => {
-    if (!socket || !quillRef.current) return;
-    const quill = quillRef.current.getEditor();
-    let didLoad = false;
-
-    // Start disabled while attempting to load the document from server.
-    // If the server never responds (auth/connection issues) we enable the editor
-    // after a short fallback timeout so the user can still type locally.
+    const quill = safeGetEditor(quillRef);
+    if (!socket || !quill) return;
     quill.enable(false);
-    socket.emit("join-document", documentId);
-
-    /*LOAD DOCUMENT*/
-    const onLoad = (document) => {
+    let didLoad = false;
+    socket.emit('join-document', documentId);
+    const onLoad = (doc) => {
       didLoad = true;
-      setDocumentTitle(document.title || "Untitled Document");
-      try {
-        quill.setContents(document.content || { ops: [] });
-      } catch (err) {
-        // If setting contents fails, fall back to empty content
-        console.error('Failed to set document contents', err);
-        quill.setText('');
-      }
+      setDocumentTitle(doc.title || 'Untitled Document');
+      try { quill.setContents(doc.content || { ops: [] }); } catch { quill.setText(''); }
       quill.enable(true);
     };
-    socket.once("load-document", onLoad);
+    socket.once('load-document', onLoad);
+    const fallback = setTimeout(() => { if (!didLoad) quill.enable(true); }, 2000);
+    return () => { socket.off('load-document', onLoad); clearTimeout(fallback); };
+  }, [socket, documentId]);
 
-    /*DOCUMENT NOT FOUND*/
-    const onDocumentNotFound = () => {
-      // If the server says not found, navigate away. Ensure editor is enabled
-      // before navigating so it is not left permanently disabled if user returns.
-      quill.enable(true);
-      alert("Document not found");
-      navigate("/dashboard");
-    };
-    socket.on("document-not-found", onDocumentNotFound);
-
-    /*NOT AUTHORIZED*/
-    const onNotAuthorized = () => {
-      quill.enable(true);
-      alert("You are not authorized to access this document");
-      navigate("/dashboard");
-    };
-    socket.on("not-authorized", onNotAuthorized);
-
-    /*ACTIVE USERS*/
-    const onActiveUsers = (users) => {
-      setActiveUsers(users);
-    };
-    socket.on("active-users", onActiveUsers);
-
-    /*RECEIVE CHANGES*/
-    const receiveChangesHandler = (delta) => {
-      try {
-        quill.updateContents(delta, "silent");
-      } catch (err) {
-        console.error('Failed applying remote delta', err);
-      }
-    };
-    socket.on("receive-changes", receiveChangesHandler);
-
-    /* TYPING */
-    const onUserTyping = (username) => setTypingUser(username);
-    const onUserStopTyping = () => setTypingUser("");
-    socket.on("user-typing", onUserTyping);
-    socket.on("user-stop-typing", onUserStopTyping);
-
-    // If the socket disconnects or we get a connect error before load,
-    // enable the editor so the user isn't blocked.
-    const onSocketDisconnect = () => {
-      if (!didLoad) {
-        quill.enable(true);
-      }
-    };
-    const onConnectError = (err) => {
-      if (!didLoad) {
-        quill.enable(true);
-      }
-    };
-    socket.on('disconnect', onSocketDisconnect);
-    socket.on('connect_error', onConnectError);
-
-    // Safety fallback: if we haven't received the document within 2s,
-    // allow local editing so the user isn't blocked by auth/network delays.
-    const fallbackTimer = setTimeout(() => {
-      if (!didLoad) quill.enable(true);
-    }, 2000);
-
-    return () => {
-      socket.off("load-document", onLoad);
-      socket.off("document-not-found", onDocumentNotFound);
-      socket.off("not-authorized", onNotAuthorized);
-      socket.off("active-users", onActiveUsers);
-      socket.off("receive-changes", receiveChangesHandler);
-      socket.off("user-typing", onUserTyping);
-      socket.off("user-stop-typing", onUserStopTyping);
-      socket.off('disconnect', onSocketDisconnect);
-      socket.off('connect_error', onConnectError);
-      clearTimeout(fallbackTimer);
-    };
-  }, [socket, documentId, navigate]);
-
-  /*SEND CHANGES */
+  // Send changes (simplified)
   useEffect(() => {
     if (!socket || !quillRef.current) return;
-    const quill = quillRef.current.getEditor();
-    let typingTimeout;
-    // Helper that saves via socket when connected, otherwise via REST API.
-    // Returns a promise that resolves when the save completes (ACK or HTTP success).
-    const saveDocumentToServer = async (content) => {
-      try {
-        if (socket && socket.connected) {
-          setIsSaving(true);
-          return await new Promise((resolve) => {
-            const onAck = (ack) => {
-              setIsSaving(false);
-              if (ack?.success) {
-                setLastSavedAt(Date.now());
-              }
-              socket.off('save-ack', onAck);
-              resolve(ack);
-            };
-            // Listen once for ack
-            socket.once('save-ack', onAck);
-            // Emit save request (include user id if available)
-            socket.emit('save-document', { documentId, content, userId: user?._id });
-            // Safety timeout: resolve after 5s if no ack
-            setTimeout(() => {
-              socket.off('save-ack', onAck);
-              setIsSaving(false);
-              resolve({ success: false, timeout: true });
-            }, 5000);
-          });
-        }
+    const quill = safeGetEditor(quillRef);
+    if (!quill) return;
 
-        // REST fallback
+    let typingTimeout;
+    let saveTimeout;
+
+    const doSave = async () => {
+      try {
         setIsSaving(true);
+        const content = quill.getContents();
         await axiosInstance.put(`/documents/${documentId}`, { content });
-        setIsSaving(false);
-        setLastSavedAt(Date.now());
-        return { success: true };
       } catch (err) {
-        console.error('Failed to save document', err);
+        console.error('autosave failed', err);
+      } finally {
         setIsSaving(false);
-        return { success: false, error: err?.message };
       }
     };
-     const textChangeHandler = ( delta, oldDelta, source ) => {
-       if (source !== "user") return;
-       /*SEND CHANGES*/
-       socket.emit("send-changes", delta, documentId);
-       /* TYPING */
-       socket.emit("typing", { documentId, username: user?.username });
-       clearTimeout(typingTimeout);
-       typingTimeout = setTimeout(() => {
-         socket.emit("stop-typing", { documentId, username: user?.username });
-         // Save document after user stops typing
-         const currentContent = quill.getContents();
-         // fire-and-forget; saveDocumentToServer will update UI via state
-         void saveDocumentToServer(currentContent);
-       }, 1000);
-     };
-     quill.on("text-change", textChangeHandler);
-     return () => {
-       quill.off("text-change", textChangeHandler);
-     };
-   }, [socket, documentId]);
 
-  //document sharing
-  const handleShareDocument = async () => {
-    if(!shareEmail.trim()) return;
-    try{
-      setShareLoading(true);
-      setShareMessage("");
-      const response= await addCollaborator(documentId, shareEmail);
-      setShareMessage(response.message||"Collaborator added");
-      setShareEmail("");
-      
-      // Refresh the collaborators list so it updates in the modal dynamically
-      const data = await getCollaborators(documentId);
-      setCollabInfo(data);
-    }catch(error){
-      setShareMessage(error.response?.data?.message || "Error sharing document");
-    }finally{
-      setShareLoading(false);
+    const textChangeHandler = (delta, oldDelta, source) => {
+      if (source !== 'user') return;
+      // broadcast changes to other clients
+      socket.emit('send-changes', delta, documentId);
+      socket.emit('typing', { documentId, username: user?.username });
+
+      // reset typing indicator timer
+      clearTimeout(typingTimeout);
+      typingTimeout = setTimeout(() => { socket.emit('stop-typing', { documentId, username: user?.username }); }, 800);
+
+      // debounce autosave: save after 2s of inactivity
+      clearTimeout(saveTimeout);
+      saveTimeout = setTimeout(() => { doSave(); }, 2000);
+    };
+
+    quill.on('text-change', textChangeHandler);
+    // also save when editor loses focus
+    const blurHandler = () => { clearTimeout(saveTimeout); doSave(); };
+    quill.root.addEventListener('blur', blurHandler);
+
+    return () => {
+      clearTimeout(typingTimeout); clearTimeout(saveTimeout);
+      quill.off('text-change', textChangeHandler);
+      try { quill.root.removeEventListener('blur', blurHandler); } catch {};
+    };
+  }, [socket, documentId, user]);
+
+  // Format dialog helpers
+  const openFormatDialog = () => {
+    const editor = safeGetEditor(quillRef); if (!editor) return; const sel = editor.getSelection(); if (sel && sel.length > 0) { setFormatRange(sel); setDialogFont(''); setDialogSize(''); setDialogColor(''); setFormatDialogOpen(true); } else console.warn('Select text before opening format dialog');
+  };
+  const applyFormatting = () => {
+    const editor = safeGetEditor(quillRef); if (!editor || !formatRange) return; const { index, length } = formatRange; if (dialogFont) editor.formatText(index, length, 'font', dialogFont, 'user'); if (dialogSize) editor.formatText(index, length, 'size', dialogSize, 'user'); if (dialogColor) editor.formatText(index, length, 'color', dialogColor, 'user'); setFormatDialogOpen(false);
+  };
+
+  // Title handler
+  const handleTitleSubmit = async () => {
+    if (!titleInput.trim() || titleInput === documentTitle) {
+      setIsEditingTitle(false);
+      return;
+    }
+    try {
+      await renameDocument(documentId, titleInput);
+      setDocumentTitle(titleInput);
+      setIsEditingTitle(false);
+    } catch (err) {
+      console.error("Failed to rename document", err);
+      setIsEditingTitle(false);
     }
   };
 
-  return (
-    <div className="h-screen flex flex-col bg-gray-100">
-      {/* HEADER */}
-      <div className="bg-white shadow p-4 flex justify-between items-center z-10">
-        {/* LEFT */}
-        <div className="flex items-center gap-4">
-          <button onClick={() => navigate("/dashboard")} className="text-gray-600 hover:text-black font-medium">
-            ← Back
-          </button>
-          {isEditingTitle ? (
-            <input
-              type="text"
-              className="text-xl font-bold border-b border-gray-300 focus:outline-none focus:border-blue-500"
-              value={titleInput}
-              onChange={e => setTitleInput(e.target.value)}
-              onBlur={async () => {
-                if (titleInput.trim() && titleInput !== documentTitle) {
-                  try {
-                    await renameDocument(documentId, titleInput.trim());
-                    setDocumentTitle(titleInput.trim());
-                  } catch (err) {
-                    console.error('Rename failed', err);
-                  }
-                }
-                setIsEditingTitle(false);
-              }}
-              onKeyDown={e => {
-                if (e.key === 'Enter') {
-                  e.preventDefault();
-                  e.currentTarget.blur();
-                }
-              }}
-            />
-          ) : (
-            <h1 onClick={() => { setIsEditingTitle(true); setTitleInput(documentTitle); }} className="text-xl font-bold text-gray-800 border-l pl-4 cursor-pointer">
-              {documentTitle}
-            </h1>
-          )}
+  // Share handler
+  const handleShareDocument = async () => {
+    if (!shareEmail.trim()) return; 
+    try {
+      setShareLoading(true);
+      setShareMessage('');
+      const response = await addCollaborator(documentId, shareEmail);
+      setShareMessage(response.message || 'Collaborator added');
+      setShareEmail('');
+      // refresh collaborators list if modal open
+      try { const data = await getCollaborators(documentId); setCollaboratorsList(data.collaborators || []); } catch {}
+    } catch (err) {
+      setShareMessage(err?.response?.data?.message || 'Error sharing document');
+    } finally { setShareLoading(false); setTimeout(() => setShareMessage(''), 3000); }
+  };
 
-        </div>
+  const openShareModal = async () => {
+    setShareModalOpen(true);
+    try {
+      const data = await getCollaborators(documentId);
+      setCollaboratorsList(data.collaborators || []);
+    } catch (err) {
+      console.error('Failed to load collaborators', err);
+    }
+  };
 
-        {/* RIGHT */}
-        <div className="flex items-center gap-3">
-          {/* TYPING */}
-          {typingUser && (
-            <div className="flex items-center gap-1.5 text-xs text-indigo-500 font-medium bg-indigo-50 px-2.5 py-1 rounded-full border border-indigo-100/50 animate-pulse">
-              <span className="flex gap-0.5">
-                <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce [animation-delay:-0.3s]" />
-                <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce [animation-delay:-0.15s]" />
-                <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-bounce" />
-              </span>
-              <span className="hidden sm:inline">{typingUser} typing</span>
-            </div>
-          )}
+  const closeShareModal = () => { setShareModalOpen(false); setShareLink(''); setLinkCopied(false); };
 
-          {/* ACTIVE USERS AVATAR STACK */}
-          {activeUsers.length > 0 && (
-            <div className="flex items-center -space-x-2 overflow-hidden mr-1">
-              {activeUsers.map((u) => {
-                const name = u.username || "Guest";
-                const initials = name.slice(0, 1).toUpperCase();
-                // Color palette for avatars based on user name hash
-                const colors = [
-                  "bg-pink-500", "bg-purple-500", "bg-indigo-500", 
-                  "bg-sky-500", "bg-emerald-500", "bg-amber-500"
-                ];
-                const charSum = name.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
-                const colorClass = colors[charSum % colors.length];
-                return (
-                  <div
-                    key={u.socketId}
-                    title={`${name} is active`}
-                    className={`inline-flex items-center justify-center h-8 w-8 rounded-full text-white text-xs font-bold border-2 border-white shadow-sm hover:-translate-y-0.5 transition-transform duration-200 cursor-help ${colorClass}`}
-                  >
-                    {initials}
-                  </div>
-                );
-              })}
-            </div>
-          )}
+  const handleGenerateLink = async () => {
+    try {
+      const resp = await generateShareLink(documentId);
+      const link = resp.link || resp?.data?.link || '';
+      setShareLink(link);
+      setLinkCopied(false);
+    } catch (err) {
+      console.error('Generate link failed', err);
+    }
+  };
 
-          {/* UNIFIED SHARE BUTTON */}
-          <button
-            onClick={async () => {
-              try {
-                setShareMessage("");
-                setShareEmail("");
-                const data = await getCollaborators(documentId);
-                setCollabInfo(data);
-                setShowCollabModal(true);
-              } catch (err) {
-                console.error('Failed to fetch collaborators', err);
-              }
-            }}
-            className="flex items-center gap-1.5 bg-blue-600 text-white px-3.5 py-1.5 rounded-lg text-sm font-semibold hover:bg-blue-700 shadow-sm transition hover:shadow-md cursor-pointer"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-            </svg>
-            <span className="hidden sm:inline">Share</span>
-          </button>
+  const handleCopyLink = async () => {
+    if (!shareLink) return;
+    try {
+      await navigator.clipboard.writeText(shareLink);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2500);
+    } catch (err) { console.error('copy failed', err); }
+  };
 
-          {/* AUTO-SAVE STATUS */}
-          <div className="flex items-center gap-1.5 text-xs font-medium text-emerald-600 bg-emerald-50 px-2.5 py-1.5 rounded-full border border-emerald-100 transition-colors duration-300" title="Changes are automatically saved and synced" id="save-status-container">
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2.5">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <span id="save-status-indicator" className="hidden md:inline">Saved</span>
+  const handleRemoveCollaborator = async (email) => {
+    try {
+      await removeCollaborator(documentId, email);
+      const data = await getCollaborators(documentId);
+      setCollaboratorsList(data.collaborators || []);
+    } catch (err) {
+      console.error('Remove collaborator failed', err);
+    }
+  };
+
+  // Small FormatDialog component inside EditorPage
+  const FormatDialog = () => (
+    formatDialogOpen ? (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm transition-opacity">
+        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 transform transition-all scale-100">
+          <div className="flex items-center justify-between mb-5">
+            <h3 className="text-lg font-bold text-slate-800">Format Text</h3>
+            <button onClick={() => setFormatDialogOpen(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
+              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
           </div>
-        </div>
-      </div>
-
-      {/* CONNECTION STATUS BANNER (shows when socket is disconnected) */}
-      {!isSocketConnected && (
-        <div className="w-full text-center bg-amber-50 text-amber-800 text-sm py-2 border-b border-amber-100">
-          Offline — changes will be stored locally and synced when connection is restored.
-        </div>
-      )}
-
-      {/* EDITOR */}
-      <div className="flex-1 flex flex-col items-center relative w-full editor-wrapper">
-        <CustomToolbar 
-          onUndo={() => {
-            const quill = quillRef.current?.getEditor();
-            if (quill) quill.history.undo();
-          }}
-          onRedo={() => {
-            const quill = quillRef.current?.getEditor();
-            if (quill) quill.history.redo();
-          }}
-          onSave={() => {
-            const quill = quillRef.current?.getEditor();
-            if (quill) {
-              const currentContent = quill.getContents();
-              // Use same helper so UI state reflects save progress
-              saveDocumentToServer(currentContent).then(() => {
-                /* no-op */
-              }).catch(() => {});
-             // Quick visual feedback
-             const saveStatus = document.getElementById("save-status-indicator");
-             const saveContainer = document.getElementById("save-status-container");
-             if (saveStatus && saveContainer) {
-               const originalText = saveStatus.innerText;
-               saveStatus.innerText = "Force Saved!";
-               saveContainer.classList.replace("bg-emerald-50", "bg-indigo-100");
-               saveContainer.classList.replace("text-emerald-600", "text-indigo-700");
-               setTimeout(() => {
-                 saveStatus.innerText = originalText;
-                 saveContainer.classList.replace("bg-indigo-100", "bg-emerald-50");
-                 saveContainer.classList.replace("text-indigo-700", "text-emerald-600");
-               }, 2000);
-             }
-           }
-         }}
-         pendingShape={pendingShape}
-         onSelectShape={setPendingShape}
-        />
-        <ReactQuill ref={quillRef} theme="snow" className="w-full h-full" modules={modules} formats={formats} />
-        {selectedImg && (
-          <div
-            style={{
-              position: 'absolute',
-              border: '2px solid #4f46e5',
-              pointerEvents: 'none',
-              zIndex: 50,
-              boxSizing: 'border-box',
-              borderRadius: '3px',
-              boxShadow: '0 0 0 2px rgba(79,70,229,0.25)',
-              ...overlayStyle
-            }}
-          >
-            {/* Move handle bar — drag to relocate the shape */}
-            <div
-              title="Drag to move shape"
-              style={{
-                position: 'absolute',
-                top: '-24px',
-                left: '50%',
-                transform: 'translateX(-50%)',
-                background: 'linear-gradient(135deg,#4f46e5,#7c3aed)',
-                color: '#fff',
-                fontSize: '10px',
-                fontWeight: 600,
-                padding: '3px 10px',
-                borderRadius: '6px 6px 0 0',
-                cursor: 'grab',
-                pointerEvents: 'auto',
-                whiteSpace: 'nowrap',
-                userSelect: 'none',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '4px',
-                boxShadow: '0 -2px 8px rgba(79,70,229,0.3)',
-              }}
-              onMouseDown={handleMoveMouseDown}
+          
+          <div className="space-y-5">
+            <div>
+              <label className="block text-sm font-semibold text-slate-600 mb-1.5">Font Family</label>
+              <select 
+                className="w-full bg-slate-50 border border-slate-200 text-slate-700 rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-shadow text-sm"
+                value={dialogFont} onChange={e => setDialogFont(e.target.value)}
+              >
+                <option value="">(default)</option>
+                {Font.whitelist.map(f => <option key={f} value={f}>{f}</option>)}
+              </select>
+            </div>
+            
+            <div>
+              <label className="block text-sm font-semibold text-slate-600 mb-1.5">Font Size</label>
+              <select 
+                className="w-full bg-slate-50 border border-slate-200 text-slate-700 rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-shadow text-sm"
+                value={dialogSize} onChange={e => setDialogSize(e.target.value)}
+              >
+                <option value="">(default)</option>
+                {Size.whitelist.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </div>
+            
+            <div>
+              <label className="block text-sm font-semibold text-slate-600 mb-2">Text Color</label>
+              <div className="flex flex-wrap gap-2.5">
+                {colors.map((c, i) => (
+                  <button 
+                    key={i} 
+                    onClick={() => setDialogColor(c)}
+                    className={`w-7 h-7 rounded-full border-2 transition-transform hover:scale-110 focus:outline-none ${dialogColor === c ? 'border-indigo-500 scale-110 ring-2 ring-indigo-200' : 'border-transparent shadow-sm'}`}
+                    style={{ backgroundColor: c || '#e2e8f0' }}
+                    title={c || 'Default'}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+          
+          <div className="mt-8 pt-4 border-t border-slate-100 flex justify-end gap-3">
+            <button 
+              onClick={() => setFormatDialogOpen(false)} 
+              className="px-4 py-2 text-sm font-semibold text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
             >
-              <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M13 6v5h5V6h3l-6-6-6 6h4zm-2 12v-5H6v5H3l6 6 6-6h-4z"/>
-              </svg>
-              Move
-            </div>
-
-            {/* Corner handles — preserve aspect ratio */}
-            {[
-              { dir: 'tl', cursor: 'nwse-resize', top: '-6px',    left: '-6px'   },
-              { dir: 'tr', cursor: 'nesw-resize', top: '-6px',    right: '-6px'  },
-              { dir: 'bl', cursor: 'nesw-resize', bottom: '-6px', left: '-6px'   },
-              { dir: 'br', cursor: 'nwse-resize', bottom: '-6px', right: '-6px'  },
-            ].map(({ dir, cursor, ...pos }) => (
-              <div
-                key={dir}
-                style={{
-                  position: 'absolute',
-                  width: '10px',
-                  height: '10px',
-                  backgroundColor: '#fff',
-                  border: '2px solid #4f46e5',
-                  borderRadius: '50%',
-                  boxShadow: 'none !important',
-                  cursor: 'pointer !important',
-                  transition: 'box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important',
-                  pointerEvents: 'auto',
-                  zIndex: 51,
-                  ...pos,
-                }}
-                onMouseDown={(e) => handleMouseDown(e, dir)}
-              />
-            ))}
-
-            {/* Edge (mid-side) handles — single-axis resize */}
-            {[
-              { dir: 'mt', cursor: 'ns-resize', top: '-6px',    left: 'calc(50% - 5px)' },
-              { dir: 'mb', cursor: 'ns-resize', bottom: '-6px', left: 'calc(50% - 5px)' },
-              { dir: 'ml', cursor: 'ew-resize', left: '-6px',   top: 'calc(50% - 5px)'  },
-              { dir: 'mr', cursor: 'ew-resize', right: '-6px',  top: 'calc(50% - 5px)'  },
-            ].map(({ dir, cursor, ...pos }) => (
-              <div
-                key={dir}
-                style={{
-                  position: 'absolute',
-                  width: '10px',
-                  height: '10px',
-                  backgroundColor: '#4f46e5',
-                  border: '2px solid #fff',
-                  borderRadius: '2px',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-                  cursor,
-                  pointerEvents: 'auto',
-                  zIndex: 51,
-                  ...pos,
-                }}
-                onMouseDown={(e) => handleMouseDown(e, dir)}
-              />
-            ))}
+              Cancel
+            </button>
+            <button 
+              onClick={applyFormatting}
+              className="px-5 py-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-md shadow-indigo-200 transition-all active:scale-95 flex items-center gap-2"
+            >
+              Apply Changes
+            </button>
           </div>
-        )}
+        </div>
+      </div>
+    ) : null
+  );
+
+  // Editor action helpers (simple)
+  const onUndo = () => { const q = safeGetEditor(quillRef); if (q) q.history.undo(); };
+  const onRedo = () => { const q = safeGetEditor(quillRef); if (q) q.history.redo(); };
+  const onSave = async () => { const q = safeGetEditor(quillRef); if (!q) return; const content = q.getContents(); try { await axiosInstance.put(`/documents/${documentId}`, { content }); } catch (err) { console.error('save failed', err); } };
+
+  return (
+    <div className="h-screen flex flex-col bg-[#f8fafc] font-sans selection:bg-indigo-100 selection:text-indigo-900 overflow-hidden">
+      {/* Top Navigation Bar */}
+      <header className="bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between shrink-0 shadow-sm z-20">
+        <div className="flex items-center gap-5">
+          <button 
+            onClick={() => navigate('/dashboard')}
+            className="p-2.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all border border-transparent hover:border-indigo-100"
+            title="Back to Dashboard"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+          </button>
+          
+          <div className="flex flex-col">
+            {isEditingTitle ? (
+              <input
+                autoFocus
+                className="text-xl font-bold text-slate-800 bg-slate-50 border-b-2 border-indigo-500 focus:outline-none px-1 py-0.5 min-w-[200px] transition-colors"
+                value={titleInput}
+                onChange={(e) => setTitleInput(e.target.value)}
+                onBlur={handleTitleSubmit}
+                onKeyDown={(e) => e.key === 'Enter' && handleTitleSubmit()}
+              />
+            ) : (
+              <h1 
+                onClick={() => { setIsEditingTitle(true); setTitleInput(documentTitle); }}
+                className="text-xl font-bold text-slate-800 cursor-pointer hover:bg-slate-100 px-2 py-0.5 rounded transition-colors border-b-2 border-transparent whitespace-nowrap overflow-hidden text-ellipsis max-w-[420px]"
+                title={documentTitle || 'Untitled Document'}
+              >
+                {documentTitle || 'Untitled Document'}
+              </h1>
+            )}
+            
+            {/* Connection Status */}
+            <div className="flex items-center gap-2 text-xs text-slate-500 mt-1 px-2 -ml-2 font-medium">
+              <span className="flex items-center gap-1.5">
+                <span className="relative flex h-2 w-2">
+                  {isSocketConnected && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>}
+                  <span className={`relative inline-flex rounded-full h-2 w-2 ${isSocketConnected ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
+                </span>
+                {isSaving ? 'Saving...' : (isSocketConnected ? 'Saved' : 'Working Offline')}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-4">
+          {/* Share Input Group */}
+          <div className="flex items-center gap-2">
+            <button onClick={openShareModal} className="bg-white border border-slate-200 px-3 py-2 rounded-lg text-sm hover:bg-slate-50">Share</button>
+          </div>
+          
+          <div className="h-8 w-px bg-slate-200 mx-1"></div>
+          
+          {/* Avatar Profile */}
+          <div className="flex items-center gap-2 cursor-pointer hover:bg-slate-100 p-1.5 rounded-lg transition-colors">
+            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-white flex items-center justify-center text-sm font-bold shadow-md ring-2 ring-white" title={user?.username || 'You'}>
+              {(user?.username || 'U').charAt(0).toUpperCase()}
+            </div>
+          </div>
+        </div>
+      </header>
+      
+      {/* Messages Toast */}
+      <div className={`absolute top-20 left-1/2 -translate-x-1/2 z-50 transition-all duration-300 transform ${shareMessage ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4 pointer-events-none'}`}>
+        <div className="bg-slate-800 text-white px-5 py-2.5 rounded-full shadow-lg text-sm font-medium flex items-center gap-3">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-400"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+          <span>{shareMessage}</span>
+          <button onClick={() => setShareMessage('')} className="text-slate-400 hover:text-white ml-1 transition-colors">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+          </button>
+        </div>
       </div>
 
-      {/* Collaborators Modal */}
-      {showCollabModal && (
-        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-100">
-          <div className="bg-white rounded-xl shadow-2xl w-100 max-h-[85vh] overflow-y-auto p-6 text-slate-800 border border-slate-100 animate-in fade-in zoom-in-95 duration-200">
-            <h2 className="text-lg font-bold mb-4 border-b pb-3 text-slate-900 flex items-center justify-between">
-              <span>Document Access & Sharing</span>
-              <button 
-                onClick={() => setShowCollabModal(false)}
-                className="text-slate-400 hover:text-slate-600 transition text-sm cursor-pointer p-1"
-              >
-                ✕
-              </button>
-            </h2>
+      {/* Editor Main Area */}
+      <main className="flex-1 flex flex-col relative bg-slate-50/30">
+        <CustomToolbar onUndo={onUndo} onRedo={onRedo} onSave={onSave} onOpenFormatDialog={openFormatDialog} />
+        
+        <div className="flex-1 overflow-y-auto w-full flex justify-center pb-24 pt-8 custom-scrollbar">
+          <ReactQuill ref={quillRef} theme="snow" className="w-full max-w-[850px] shadow-sm rounded-xl overflow-hidden bg-white min-h-[800px]" modules={modules} formats={formats} placeholder="Start typing your document..." />
+        </div>
+      </main>
 
-            {/* 1. Share / Invite Section */}
-            <div className="mb-5 pb-5 border-b border-slate-100">
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Invite Collaborators</label>
+      {/* Share Modal */}
+      {shareModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">Share Document</h3>
+              <button onClick={closeShareModal} className="text-slate-500 hover:text-slate-800">Close</button>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-slate-700 mb-2">Invite via email</label>
               <div className="flex gap-2">
-                <input 
-                  type="email" 
-                  placeholder="Collaborator email address" 
-                  value={shareEmail} 
-                  onChange={(e) => setShareEmail(e.target.value)} 
-                  className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100/50 transition bg-slate-50/50 text-slate-800"
-                />
-                <button 
-                  onClick={handleShareDocument}
-                  disabled={shareLoading}
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition disabled:opacity-50 min-w-17.5 cursor-pointer shadow-sm hover:shadow"
-                >
-                  {shareLoading ? "Adding..." : "Invite"}
-                </button>
+                <input type="email" value={shareEmail} onChange={e => setShareEmail(e.target.value)} placeholder="email@example.com" className="flex-1 border rounded px-3 py-2" />
+                <button onClick={handleShareDocument} className="bg-indigo-600 text-white px-4 py-2 rounded">Invite</button>
               </div>
-              {shareMessage && (
-                <p className="mt-2.5 text-xs text-blue-600 bg-blue-50 px-2.5 py-1.5 rounded border border-blue-100/50 animate-pulse">
-                  {shareMessage}
-                </p>
-              )}
             </div>
 
-            {/* 2. Copy Link Section */}
-            <div className="mb-5 pb-5 border-b flex justify-between items-center bg-slate-50 p-3 rounded-lg border border-slate-100">
-              <div className="flex items-center gap-2">
-                <svg className="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
-                </svg>
-                <span className="text-xs text-slate-500 font-medium">Anyone with this link can collaborate</span>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-slate-700 mb-2">Or generate a shareable link</label>
+              <div className="flex gap-2 items-center">
+                <button onClick={handleGenerateLink} className="bg-white border px-3 py-2 rounded">Generate Link</button>
+                {shareLink && (
+                  <div className="flex gap-2 items-center">
+                    <input readOnly value={shareLink} className="border rounded px-2 py-2 w-80" />
+                    <button onClick={handleCopyLink} className={`px-3 py-2 rounded ${linkCopied ? 'bg-emerald-600 text-white' : 'bg-indigo-600 text-white'}`}>{linkCopied ? 'Copied' : 'Copy'}</button>
+                  </div>
+                )}
               </div>
-              <button
-                onClick={() => {
-                  navigator.clipboard.writeText(window.location.href);
-                  alert("Link copied to clipboard!");
-                }}
-                className="flex items-center gap-1 text-blue-600 hover:text-blue-700 text-xs font-semibold px-2 py-1.5 hover:bg-blue-50 rounded-md transition cursor-pointer"
-              >
-                Copy Link
-              </button>
             </div>
 
-            {/* 3. Who Has Access List */}
-            <div className="space-y-4">
-              <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider">People with Access</h3>
-              
-              {/* Owner */}
-              <div className="flex items-center justify-between bg-slate-50/50 p-2.5 rounded-lg border border-slate-100">
-                <div className="flex items-center gap-2.5">
-                  <div className="h-7 w-7 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs font-bold">
-                    O
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-sm font-semibold text-slate-800">
-                      {collabInfo.owner?.username || "Owner"}
-                    </span>
-                    <span className="text-[10px] text-slate-400 mt-0.5">
-                      {collabInfo.owner?.email || "owner@domain.com"}
-                    </span>
-                  </div>
-                </div>
-                <span className="text-[10px] bg-indigo-50 text-indigo-700 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
-                  Owner
-                </span>
-              </div>
-
-              {/* Collaborators List */}
-              {collabInfo.collaborators && collabInfo.collaborators.length > 0 && (
-                <div className="space-y-2">
-                  {collabInfo.collaborators.map((c) => {
-                    const initials = c.username ? c.username.slice(0, 1).toUpperCase() : "?";
-                    return (
-                      <div key={c._id} className="flex items-center justify-between p-2.5 bg-slate-50/20 rounded-lg border border-slate-100 hover:bg-slate-50/50 transition">
-                        <div className="flex items-center gap-2.5">
-                          <div className="h-7 w-7 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center text-xs font-bold">
-                            {initials}
-                          </div>
-                          <div className="flex flex-col">
-                            <span className="text-sm font-semibold text-slate-800">{c.username}</span>
-                            <span className="text-[10px] text-slate-400 mt-0.5">{c.email}</span>
-                          </div>
-                        </div>
-                        <span className="text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
-                          Editor
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {/* Pending Invites List */}
-              {collabInfo.pendingCollaborators && collabInfo.pendingCollaborators.length > 0 && (
-                <div className="space-y-2">
-                  <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-2">Invited</h4>
-                  {collabInfo.pendingCollaborators.map((email, idx) => (
-                    <div key={idx} className="flex items-center justify-between p-2.5 bg-amber-50/30 rounded-lg border border-amber-100/50 animate-pulse">
-                      <div className="flex items-center gap-2.5">
-                        <div className="h-7 w-7 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center text-xs font-bold">
-                          P
-                        </div>
-                        <span className="text-sm font-medium text-slate-700">{email}</span>
-                      </div>
-                      <span className="text-[10px] bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
-                        Pending
-                      </span>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Collaborators</label>
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {collaboratorsList.length === 0 ? <div className="text-sm text-slate-500">No collaborators</div> : collaboratorsList.map((c) => (
+                  <div key={c._id || c.email} className="flex items-center justify-between border rounded px-3 py-2">
+                    <div>
+                      <div className="text-sm font-medium">{c.username || c.email}</div>
+                      <div className="text-xs text-slate-500">{c.email}</div>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            {/* Footer action */}
-            <div className="flex justify-end mt-6 border-t pt-4">
-              <button
-                onClick={() => setShowCollabModal(false)}
-                className="bg-slate-100 hover:bg-slate-200 text-slate-800 px-4 py-2 rounded-lg text-sm font-medium transition cursor-pointer"
-              >
-                Close
-              </button>
+                    <div>
+                      <button onClick={() => handleRemoveCollaborator(c.email)} className="text-red-600 text-sm">Remove</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>
       )}
+
+      <FormatDialog />
     </div>
   );
-}
-
-// Insert helper to apply font/size to current line
-const applyStyleToCurrentLine = (quill, font, size) => {
-  try {
-    if (!quill) return;
-    const sel = quill.getSelection();
-    if (!sel) return;
-    const index = sel.index;
-    // Find line start by searching for the last newline before the selection
-    const beforeText = quill.getText(0, index);
-    const lineStart = beforeText.lastIndexOf('\n') + 1;
-    // Find the end of the line
-    const fromStart = quill.getText(lineStart);
-    const nextNewline = fromStart.indexOf('\n');
-    const lineLength = nextNewline === -1 ? Math.max(0, quill.getLength() - lineStart - 1) : nextNewline;
-    if (lineLength <= 0) {
-      // Apply to the newline character so subsequent typing uses the format
-      quill.formatText(lineStart, 1, { font, size }, 'user');
-    } else {
-      quill.formatText(lineStart, lineLength, { font, size }, 'user');
-    }
-  } catch (err) {
-    console.error('applyStyleToCurrentLine error', err);
-  }
 };
 
 export default EditorPage;
