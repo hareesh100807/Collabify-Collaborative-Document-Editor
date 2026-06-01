@@ -59,19 +59,15 @@ const documentSocket = (io) => {
       }
     );
     // Save document
-    socket.on("save-document", async ({ documentId, content, userId }) => {
+    socket.on("save-document",async ({ documentId, content,userId }) => {
         try {
-          await Document.findByIdAndUpdate(documentId, { content });
-          // Save version only if userId is provided
-          if (userId) {
-            const version = new Version({ documentId, content, editedBy: userId });
-            await version.save();
-          }
+          await Document.findByIdAndUpdate(documentId,{ content });
+          // Save version
+          const version = new Version({documentId, content, editedBy: userId});
+          await version.save();
           console.log("Document saved");
-          socket.emit("save-ack", { success: true });
         } catch (error) {
-          console.error("Error saving document:", error);
-          socket.emit("save-ack", { success: false, error: error.message });
+          console.error(error);
         }
       }
     );
@@ -79,11 +75,6 @@ const documentSocket = (io) => {
     socket.on("disconnect", () => {
       console.log("User disconnected:", socket.id);
     });
-    }catch(error){
-      console.error("Error in socket connection:", error);
-      socket.disconnect();
-    }
   });
-
 };
 export default documentSocket;
