@@ -3,6 +3,7 @@ import UserModel from '../models/UserModel.js';
 
 const authMiddleware = async (req, res, next) => {
     try {
+        console.log("Cookies:", req.cookies); // Debugging line to check cookies
         //get token from cookies
         const token = req.cookies.token;
         //check token is present or not

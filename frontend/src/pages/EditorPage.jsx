@@ -1,3 +1,4 @@
+/* eslint-disable tailwindcss/no-arbitrary-value, tailwindcss/classnames-order, tailwindcss/no-custom-classname */
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import ReactQuill from "react-quill-new";
 import "react-quill-new/dist/quill.snow.css";
@@ -103,7 +104,7 @@ class ShapeBlot extends BlockEmbed {
 
 // Custom image blot overriding default image behavior to allow inline flow and resizing handles
 class CustomImageBlot extends BlockEmbed {
-  static blotName = 'image';
+  static blotName = 'custom-image';
   static tagName = 'div';
   static className = 'ql-custom-image-wrapper';
 
@@ -238,12 +239,12 @@ const safeGetEditor = (ref) => {
 const colors = ["", "#000000", "#e60000", "#ff9900", "#ffff00", "#008a00", "#0066cc", "#9933ff", "#4f46e5"];
 
 // Small CustomToolbar component used by the editor
-const CustomToolbar = ({ onUndo, onRedo, onSave, onOpenFormatDialog }) => {
+const CustomToolbar = ({ onUndo, onRedo, onSave, formatOpen, setFormatOpen, dialogFont, setDialogFont, dialogSize, setDialogSize, dialogColor, setDialogColor, onApplyFormat, onCancelFormat }) => {
   return (
     <div id="custom-toolbar" className="custom-ribbon bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-10 w-full flex justify-center shadow-sm">
-      <div className="flex items-center justify-between w-full max-w-[850px] mx-auto py-1.5 px-4">
+      <div className="flex items-center justify-between w-full max-w-4xl mx-auto py-1.5 px-4">
         <div className="flex items-center gap-2">
-          <span className="ql-formats !mr-1">
+          <span className="ql-formats mr-1">
             <button onClick={onUndo} className="toolbar-action-btn flex items-center justify-center text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors h-8 w-8" title="Undo">
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
             </button>
@@ -254,7 +255,9 @@ const CustomToolbar = ({ onUndo, onRedo, onSave, onOpenFormatDialog }) => {
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
             </button>
           </span>
+
           <div className="w-px h-5 bg-slate-200 mx-1"></div>
+
           <span className="ql-formats">
             <select className="ql-font" defaultValue="inter" title="Font Family">
               {Font.whitelist.map(f => <option value={f} key={f}>{f}</option>)}
@@ -274,20 +277,58 @@ const CustomToolbar = ({ onUndo, onRedo, onSave, onOpenFormatDialog }) => {
               <option value="heart">Heart</option>
             </select>
           </span>
+
           <div className="w-px h-5 bg-slate-200 mx-1"></div>
-          <span className="ql-formats !mr-1">
+
+          <span className="ql-formats mr-1">
             <button className="ql-bold hover:bg-indigo-50 rounded" title="Bold" />
             <button className="ql-italic hover:bg-indigo-50 rounded" title="Italic" />
             <button className="ql-underline hover:bg-indigo-50 rounded" title="Underline" />
           </span>
         </div>
-        <div className="flex items-center">
-          <span className="ql-formats !mr-0">
-            <button onClick={onOpenFormatDialog} className="toolbar-action-btn flex items-center justify-center text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-md px-3 py-1.5 w-auto gap-1.5 text-xs font-semibold transition-all shadow-sm" title="Advanced Format">
+
+        <div className="flex items-center relative">
+          {/* Inline format popover placed in toolbar */}
+          <div className="relative">
+            <button onClick={() => setFormatOpen(!formatOpen)} className="toolbar-action-btn flex items-center justify-center text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-md px-3 py-1.5 w-auto gap-1.5 text-xs font-semibold transition-all shadow-sm" title="Advanced Format">
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>
-              Format Text
+              <span className="ml-1">Format</span>
             </button>
-          </span>
+
+            {formatOpen && (
+              <div className="absolute right-0 mt-2 w-72 bg-white border border-slate-200 rounded-lg p-3 shadow-lg z-50">
+                <div className="mb-3">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Font Family</label>
+                  <select className="w-full border rounded px-2 py-1 text-sm" value={dialogFont} onChange={(e) => setDialogFont(e.target.value)}>
+                    <option value="">(default)</option>
+                    {Font.whitelist.map(f => <option key={f} value={f}>{f}</option>)}
+                  </select>
+                </div>
+
+                <div className="mb-3">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Font Size</label>
+                  <select className="w-full border rounded px-2 py-1 text-sm" value={dialogSize} onChange={(e) => setDialogSize(e.target.value)}>
+                    <option value="">(default)</option>
+                    {Size.whitelist.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+                </div>
+
+                <div className="mb-3">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Text Color</label>
+                  <div className="flex flex-wrap gap-2">
+                    {colors.map((c, i) => (
+                      <button key={i} onClick={() => setDialogColor(c)} className={`w-6 h-6 rounded-full border-2 transition-transform ${dialogColor === c ? 'border-indigo-500 ring-2 ring-indigo-200 scale-105' : 'border-transparent shadow-sm'}`} style={{ backgroundColor: c || '#e2e8f0' }} title={c || 'Default'} />
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 mt-2">
+                  <button onClick={() => { onCancelFormat(); setFormatOpen(false); }} className="px-3 py-1.5 text-sm bg-slate-100 rounded">Cancel</button>
+                  <button onClick={() => { onApplyFormat(); setFormatOpen(false); }} className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded">Apply</button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -329,7 +370,7 @@ const modulesFactory = (quillRef, setPendingShape) => ({
           reader.onload = (e) => {
             const quill = safeGetEditor(quillRef); if (!quill) return;
             const range = quill.getSelection(true); const index = range ? range.index : quill.getLength() - 1;
-            quill.insertEmbed(index, 'image', e.target.result, 'user'); quill.setSelection(index + 1);
+            quill.insertEmbed(index, 'custom-image', e.target.result, 'user'); quill.setSelection(index + 1);
           };
           reader.readAsDataURL(file);
         };
@@ -349,7 +390,7 @@ const formats = [
   "align", "indent", "direction",
   "list",
   "blockquote", "code-block",
-  "link", "image", "video", "formula",
+  "link", "custom-image", "video", "formula",
   "shape",
 ];
 
@@ -394,7 +435,7 @@ const EditorPage = () => {
   useEffect(() => { window.__REACT_SHAPE_SETTER__ = setPendingShape; return () => { if (window.__REACT_SHAPE_SETTER__ === setPendingShape) delete window.__REACT_SHAPE_SETTER__; }; }, [setPendingShape]);
 
   // Format dialog hooks
-  const [formatDialogOpen, setFormatDialogOpen] = useState(false);
+  const [formatOpen, setFormatOpen] = useState(false);
   const [formatRange, setFormatRange] = useState(null);
   const [dialogFont, setDialogFont] = useState('');
   const [dialogSize, setDialogSize] = useState('');
@@ -481,14 +522,6 @@ const EditorPage = () => {
     };
   }, [socket, documentId, user]);
 
-  // Format dialog helpers
-  const openFormatDialog = () => {
-    const editor = safeGetEditor(quillRef); if (!editor) return; const sel = editor.getSelection(); if (sel && sel.length > 0) { setFormatRange(sel); setDialogFont(''); setDialogSize(''); setDialogColor(''); setFormatDialogOpen(true); } else console.warn('Select text before opening format dialog');
-  };
-  const applyFormatting = () => {
-    const editor = safeGetEditor(quillRef); if (!editor || !formatRange) return; const { index, length } = formatRange; if (dialogFont) editor.formatText(index, length, 'font', dialogFont, 'user'); if (dialogSize) editor.formatText(index, length, 'size', dialogSize, 'user'); if (dialogColor) editor.formatText(index, length, 'color', dialogColor, 'user'); setFormatDialogOpen(false);
-  };
-
   // Title handler
   const handleTitleSubmit = async () => {
     if (!titleInput.trim() || titleInput === documentTitle) {
@@ -563,76 +596,6 @@ const EditorPage = () => {
     }
   };
 
-  // Small FormatDialog component inside EditorPage
-  const FormatDialog = () => (
-    formatDialogOpen ? (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm transition-opacity">
-        <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 transform transition-all scale-100">
-          <div className="flex items-center justify-between mb-5">
-            <h3 className="text-lg font-bold text-slate-800">Format Text</h3>
-            <button onClick={() => setFormatDialogOpen(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
-              <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
-            </button>
-          </div>
-          
-          <div className="space-y-5">
-            <div>
-              <label className="block text-sm font-semibold text-slate-600 mb-1.5">Font Family</label>
-              <select 
-                className="w-full bg-slate-50 border border-slate-200 text-slate-700 rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-shadow text-sm"
-                value={dialogFont} onChange={e => setDialogFont(e.target.value)}
-              >
-                <option value="">(default)</option>
-                {Font.whitelist.map(f => <option key={f} value={f}>{f}</option>)}
-              </select>
-            </div>
-            
-            <div>
-              <label className="block text-sm font-semibold text-slate-600 mb-1.5">Font Size</label>
-              <select 
-                className="w-full bg-slate-50 border border-slate-200 text-slate-700 rounded-lg px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500 transition-shadow text-sm"
-                value={dialogSize} onChange={e => setDialogSize(e.target.value)}
-              >
-                <option value="">(default)</option>
-                {Size.whitelist.map(s => <option key={s} value={s}>{s}</option>)}
-              </select>
-            </div>
-            
-            <div>
-              <label className="block text-sm font-semibold text-slate-600 mb-2">Text Color</label>
-              <div className="flex flex-wrap gap-2.5">
-                {colors.map((c, i) => (
-                  <button 
-                    key={i} 
-                    onClick={() => setDialogColor(c)}
-                    className={`w-7 h-7 rounded-full border-2 transition-transform hover:scale-110 focus:outline-none ${dialogColor === c ? 'border-indigo-500 scale-110 ring-2 ring-indigo-200' : 'border-transparent shadow-sm'}`}
-                    style={{ backgroundColor: c || '#e2e8f0' }}
-                    title={c || 'Default'}
-                  />
-                ))}
-              </div>
-            </div>
-          </div>
-          
-          <div className="mt-8 pt-4 border-t border-slate-100 flex justify-end gap-3">
-            <button 
-              onClick={() => setFormatDialogOpen(false)} 
-              className="px-4 py-2 text-sm font-semibold text-slate-600 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
-            >
-              Cancel
-            </button>
-            <button 
-              onClick={applyFormatting}
-              className="px-5 py-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-md shadow-indigo-200 transition-all active:scale-95 flex items-center gap-2"
-            >
-              Apply Changes
-            </button>
-          </div>
-        </div>
-      </div>
-    ) : null
-  );
-
   // Editor action helpers (simple)
   const onUndo = () => { const q = safeGetEditor(quillRef); if (q) q.history.undo(); };
   const onRedo = () => { const q = safeGetEditor(quillRef); if (q) q.history.redo(); };
@@ -655,7 +618,7 @@ const EditorPage = () => {
             {isEditingTitle ? (
               <input
                 autoFocus
-                className="text-xl font-bold text-slate-800 bg-slate-50 border-b-2 border-indigo-500 focus:outline-none px-1 py-0.5 min-w-[200px] transition-colors"
+                className="text-xl font-bold text-slate-800 bg-slate-50 border-b-2 border-indigo-500 focus:outline-none px-1 py-0.5 w-52 transition-colors"
                 value={titleInput}
                 onChange={(e) => setTitleInput(e.target.value)}
                 onBlur={handleTitleSubmit}
@@ -664,7 +627,7 @@ const EditorPage = () => {
             ) : (
               <h1 
                 onClick={() => { setIsEditingTitle(true); setTitleInput(documentTitle); }}
-                className="text-xl font-bold text-slate-800 cursor-pointer hover:bg-slate-100 px-2 py-0.5 rounded transition-colors border-b-2 border-transparent whitespace-nowrap overflow-hidden text-ellipsis max-w-[420px]"
+                className="text-xl font-bold text-slate-800 cursor-pointer hover:bg-slate-100 px-2 py-0.5 rounded transition-colors border-b-2 border-transparent whitespace-nowrap overflow-hidden text-ellipsis max-w-md"
                 title={documentTitle || 'Untitled Document'}
               >
                 {documentTitle || 'Untitled Document'}
@@ -694,7 +657,7 @@ const EditorPage = () => {
           
           {/* Avatar Profile */}
           <div className="flex items-center gap-2 cursor-pointer hover:bg-slate-100 p-1.5 rounded-lg transition-colors">
-            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 text-white flex items-center justify-center text-sm font-bold shadow-md ring-2 ring-white" title={user?.username || 'You'}>
+            <div className="w-9 h-9 rounded-full bg-indigo-500 text-white flex items-center justify-center text-sm font-bold shadow-md ring-2 ring-white" title={user?.username || 'You'}>
               {(user?.username || 'U').charAt(0).toUpperCase()}
             </div>
           </div>
@@ -714,10 +677,10 @@ const EditorPage = () => {
 
       {/* Editor Main Area */}
       <main className="flex-1 flex flex-col relative bg-slate-50/30">
-        <CustomToolbar onUndo={onUndo} onRedo={onRedo} onSave={onSave} onOpenFormatDialog={openFormatDialog} />
+        <CustomToolbar onUndo={onUndo} onRedo={onRedo} onSave={onSave} formatOpen={formatOpen} setFormatOpen={setFormatOpen} dialogFont={dialogFont} setDialogFont={setDialogFont} dialogSize={dialogSize} setDialogSize={setDialogSize} dialogColor={dialogColor} setDialogColor={setDialogColor} onApplyFormat={applyFormatting} onCancelFormat={() => setFormatOpen(false)} />
         
         <div className="flex-1 overflow-y-auto w-full flex justify-center pb-24 pt-8 custom-scrollbar">
-          <ReactQuill ref={quillRef} theme="snow" className="w-full max-w-[850px] shadow-sm rounded-xl overflow-hidden bg-white min-h-[800px]" modules={modules} formats={formats} placeholder="Start typing your document..." />
+          <ReactQuill ref={quillRef} theme="snow" className="w-full max-w-4xl shadow-sm rounded-xl overflow-hidden bg-white min-h-screen" modules={modules} formats={formats} placeholder="Start typing your document..." />
         </div>
       </main>
 
@@ -770,8 +733,6 @@ const EditorPage = () => {
           </div>
         </div>
       )}
-
-      <FormatDialog />
     </div>
   );
 };
