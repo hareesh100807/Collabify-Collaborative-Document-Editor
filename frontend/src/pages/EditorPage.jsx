@@ -312,105 +312,327 @@ const safeGetEditor = (ref) => {
   }
 };
 
-const colors = ["", "#000000", "#e60000", "#ff9900", "#ffff00", "#008a00", "#0066cc", "#9933ff", "#4f46e5"];
+const TEXT_COLOR_OPTIONS = ["#000000", "#5f6368", "#d93025", "#f29900", "#188038", "#1967d2", "#9334e6"];
+const HIGHLIGHT_COLOR_OPTIONS = ["#ffffff", "#fce8e6", "#fef7e0", "#e6f4ea", "#e8f0fe", "#f3e8fd", "#fff475"];
+
+const PARAGRAPH_OPTIONS = [
+  { label: "Normal text", value: "" },
+  { label: "Heading 1", value: "1" },
+  { label: "Heading 2", value: "2" },
+  { label: "Heading 3", value: "3" },
+];
+
+const ALIGN_OPTIONS = [
+  { label: "Align left", value: false, icon: "left" },
+  { label: "Align center", value: "center", icon: "center" },
+  { label: "Align right", value: "right", icon: "right" },
+  { label: "Justify", value: "justify", icon: "justify" },
+];
 
 const getActiveUserName = (activeUser) => {
   if (typeof activeUser === 'string') return activeUser;
   return activeUser?.username || activeUser?.name || activeUser?.email || 'Collaborator';
 };
 
-// Small CustomToolbar component used by the editor
-const CustomToolbar = ({ onUndo, onRedo, onSave, formatOpen, setFormatOpen, onCaptureFormatRange, dialogFont, setDialogFont, dialogSize, setDialogSize, dialogColor, setDialogColor, onApplyFormat, onCancelFormat }) => {
+const normalizeToolbarColor = (value, fallback) => {
+  if (typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value)) return value;
+  return fallback;
+};
+
+const ToolbarSeparator = () => <div className="mx-1 h-6 w-px shrink-0 bg-slate-300" />;
+
+const ToolbarButton = ({ title, active = false, disabled = false, className = "", children, onClick }) => (
+  <button
+    type="button"
+    title={title}
+    aria-label={title}
+    aria-pressed={active}
+    disabled={disabled}
+    onMouseDown={(event) => event.preventDefault()}
+    onClick={onClick}
+    className={`inline-flex h-8 min-w-8 shrink-0 items-center justify-center rounded-md px-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:opacity-40 ${active ? "bg-blue-100 text-blue-700" : ""} ${className}`}
+  >
+    {children}
+  </button>
+);
+
+const ToolbarSelect = ({ title, value, className = "", children, onChange }) => (
+  <select
+    title={title}
+    aria-label={title}
+    value={value}
+    onChange={(event) => onChange(event.target.value)}
+    className={`h-8 shrink-0 rounded-md border border-transparent bg-transparent px-2 text-sm text-slate-800 outline-none transition-colors hover:bg-slate-200 focus:border-blue-300 focus:bg-white ${className}`}
+  >
+    {children}
+  </select>
+);
+
+const AlignIcon = ({ type }) => {
+  const widths = {
+    left: [18, 12, 16, 10],
+    center: [14, 18, 12, 16],
+    right: [10, 16, 12, 18],
+    justify: [18, 18, 18, 18],
+  }[type];
+
   return (
-    <div id="custom-toolbar" className="custom-ribbon bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-10 w-full flex justify-center shadow-sm">
-      <div className="flex items-center justify-between w-full max-w-4xl mx-auto py-1.5 px-4">
-        <div className="flex items-center gap-2">
-          <span className="ql-formats mr-1">
-            <button onClick={onUndo} className="toolbar-action-btn flex items-center justify-center text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors h-8 w-8" title="Undo">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
-            </button>
-            <button onClick={onRedo} className="toolbar-action-btn flex items-center justify-center text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded transition-colors h-8 w-8" title="Redo">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 7v6h-6"/><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/></svg>
-            </button>
-            <button onClick={onSave} className="toolbar-save-btn flex items-center justify-center text-slate-500 hover:text-emerald-600 hover:bg-emerald-50 rounded transition-colors h-8 w-8 ml-1" title="Save">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
-            </button>
-          </span>
+    <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+      {widths.map((width, index) => (
+        <path
+          key={`${type}-${index}`}
+          d={`M${type === "right" ? 18 - width : type === "center" ? (20 - width) / 2 : 2} ${4 + index * 4}h${width}`}
+          stroke="currentColor"
+          strokeWidth="1.7"
+          strokeLinecap="round"
+        />
+      ))}
+    </svg>
+  );
+};
 
-          <div className="w-px h-5 bg-slate-200 mx-1"></div>
+const UndoIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path d="M7 7H3v4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M3 11a8 8 0 1 0 2.34-5.66L3 7.68" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
 
-          <span className="ql-formats">
-            <select className="ql-font" defaultValue="" title="Font Family">
-              {FONT_OPTIONS.map(({ label, value }) => <option value={value} key={`${label}-${value}`}>{label}</option>)}
-            </select>
-            <select className="ql-size" defaultValue="" title="Font Size">
-              {SIZE_OPTIONS.map(({ label, value }) => <option value={value} key={`${label}-${value}`}>{label}</option>)}
-            </select>
-            <select className="ql-shape" defaultValue="" title="Insert Shape">
-              <option value="">Shape</option>
-              <option value="rectangle">Rectangle</option>
-              <option value="circle">Circle</option>
-              <option value="triangle">Triangle</option>
-              <option value="diamond">Diamond</option>
-              <option value="hexagon">Hexagon</option>
-              <option value="star">Star</option>
-              <option value="arrowRight">Arrow</option>
-              <option value="heart">Heart</option>
-            </select>
-          </span>
+const RedoIcon = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path d="M17 7h4v4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M21 11a8 8 0 1 1-2.34-5.66L21 7.68" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
 
-          <div className="w-px h-5 bg-slate-200 mx-1"></div>
+const SaveIcon = () => (
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+    <path d="M17 21v-8H7v8M7 3v5h8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
 
-          <span className="ql-formats mr-1">
-            <button className="ql-bold hover:bg-indigo-50 rounded" title="Bold" />
-            <button className="ql-italic hover:bg-indigo-50 rounded" title="Italic" />
-            <button className="ql-underline hover:bg-indigo-50 rounded" title="Underline" />
-            <button className="ql-image hover:bg-indigo-50 rounded" title="Insert Image" />
-          </span>
-        </div>
+const LinkIcon = () => (
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <path d="M10 13a5 5 0 0 0 7.07 0l2-2a5 5 0 0 0-7.07-7.07l-1.1 1.1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    <path d="M14 11a5 5 0 0 0-7.07 0l-2 2A5 5 0 0 0 12 20.07l1.1-1.1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+  </svg>
+);
 
-        <div className="flex items-center relative">
-          {/* Inline format popover placed in toolbar */}
+const ImageIcon = () => (
+  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+    <rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" strokeWidth="2" />
+    <path d="m3 16 5-5 4 4 2-2 7 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    <circle cx="16.5" cy="9.5" r="1.5" fill="currentColor" />
+  </svg>
+);
+
+const ListIcon = ({ ordered = false }) => (
+  <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+    {ordered ? (
+      <>
+        <text x="2" y="7" fontSize="6" fill="currentColor">1</text>
+        <text x="2" y="15" fontSize="6" fill="currentColor">2</text>
+      </>
+    ) : (
+      <>
+        <circle cx="4" cy="6" r="1.4" fill="currentColor" />
+        <circle cx="4" cy="14" r="1.4" fill="currentColor" />
+      </>
+    )}
+    <path d="M8 6h9M8 14h9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+  </svg>
+);
+
+const ClearIcon = () => (
+  <span className="relative text-sm font-semibold">
+    Tx
+    <span className="absolute left-0 top-1/2 h-px w-full -rotate-12 bg-current" />
+  </span>
+);
+
+const ToolbarPopover = ({ title, inputLabel, value, placeholder, submitLabel, onChange, onSubmit, onClose }) => (
+  <div className="absolute left-0 top-10 z-30 w-80 rounded-lg border border-slate-200 bg-white p-3 shadow-xl">
+    <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</div>
+    <form onSubmit={onSubmit} className="space-y-3">
+      <label className="block text-sm text-slate-700">
+        <span className="sr-only">{inputLabel}</span>
+        <input
+          autoFocus
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={placeholder}
+          className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+        />
+      </label>
+      <div className="flex justify-end gap-2">
+        <button type="button" onClick={onClose} className="rounded-md px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100">
+          Cancel
+        </button>
+        <button type="submit" className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700">
+          {submitLabel}
+        </button>
+      </div>
+    </form>
+  </div>
+);
+
+const CustomToolbar = ({
+  activeFormats,
+  imageUrl,
+  isImagePopoverOpen,
+  isLinkPopoverOpen,
+  linkUrl,
+  onApplyImageUrl,
+  onApplyLink,
+  onClearFormatting,
+  onColor,
+  onFormat,
+  onImagePopoverToggle,
+  onLinkPopoverToggle,
+  onRedo,
+  onSave,
+  onSetImageUrl,
+  onSetLinkUrl,
+  onUndo,
+}) => {
+  const normalizedFont = normalizeFontValue(activeFormats.font);
+  const headerValue = typeof activeFormats.header === "number" || typeof activeFormats.header === "string" ? String(activeFormats.header) : "";
+  const fontValue = typeof normalizedFont === "string" ? normalizedFont : "";
+  const sizeValue = typeof activeFormats.size === "string" ? activeFormats.size : "";
+  const textColor = normalizeToolbarColor(activeFormats.color, "#000000");
+  const highlightColor = normalizeToolbarColor(activeFormats.background, "#ffffff");
+
+  return (
+    <div className="sticky top-0 z-20 border-b border-slate-200 bg-white px-3 py-2 shadow-sm">
+      <div className="overflow-x-auto">
+        <div className="flex min-w-max items-center gap-1 rounded-full bg-[#edf2fa] px-2 py-1">
+          <ToolbarButton title="Undo" onClick={onUndo}><UndoIcon /></ToolbarButton>
+          <ToolbarButton title="Redo" onClick={onRedo}><RedoIcon /></ToolbarButton>
+          <ToolbarButton title="Save" onClick={onSave}><SaveIcon /></ToolbarButton>
+
+          <ToolbarSeparator />
+
+          <ToolbarSelect title="Paragraph style" value={headerValue} className="w-36" onChange={(value) => onFormat("header", value ? Number(value) : false)}>
+            {PARAGRAPH_OPTIONS.map((option) => (
+              <option key={option.label} value={option.value}>{option.label}</option>
+            ))}
+          </ToolbarSelect>
+
+          <ToolbarSelect title="Font family" value={fontValue} className="w-40" onChange={(value) => onFormat("font", value || false)}>
+            {FONT_OPTIONS.map(({ label, value }) => (
+              <option value={value} key={`${label}-${value}`}>{label}</option>
+            ))}
+          </ToolbarSelect>
+
+          <ToolbarSelect title="Font size" value={sizeValue} className="w-24" onChange={(value) => onFormat("size", value || false)}>
+            {SIZE_OPTIONS.map(({ label, value }) => (
+              <option value={value} key={`${label}-${value}`}>{label}</option>
+            ))}
+          </ToolbarSelect>
+
+          <ToolbarSeparator />
+
+          <ToolbarButton title="Bold" active={!!activeFormats.bold} className="font-bold" onClick={() => onFormat("bold", !activeFormats.bold)}>B</ToolbarButton>
+          <ToolbarButton title="Italic" active={!!activeFormats.italic} className="italic" onClick={() => onFormat("italic", !activeFormats.italic)}>I</ToolbarButton>
+          <ToolbarButton title="Underline" active={!!activeFormats.underline} className="underline" onClick={() => onFormat("underline", !activeFormats.underline)}>U</ToolbarButton>
+          <ToolbarButton title="Strike" active={!!activeFormats.strike} className="line-through" onClick={() => onFormat("strike", !activeFormats.strike)}>S</ToolbarButton>
+
+          <ToolbarSeparator />
+
+          <div className="flex items-center rounded-md px-1 hover:bg-slate-200" title="Text color">
+            <span className="mr-1 text-sm font-semibold text-slate-700">A</span>
+            <input
+              aria-label="Text color"
+              type="color"
+              value={textColor}
+              list="editor-text-colors"
+              onChange={(event) => onColor("color", event.target.value)}
+              className="h-7 w-7 cursor-pointer rounded border-0 bg-transparent p-0"
+            />
+            <datalist id="editor-text-colors">
+              {TEXT_COLOR_OPTIONS.map((color) => <option key={color} value={color} />)}
+            </datalist>
+          </div>
+
+          <div className="flex items-center rounded-md px-1 hover:bg-slate-200" title="Highlight color">
+            <span className="mr-1 rounded-sm px-1 text-sm font-semibold text-slate-700" style={{ backgroundColor: highlightColor }}>A</span>
+            <input
+              aria-label="Highlight color"
+              type="color"
+              value={highlightColor}
+              list="editor-highlight-colors"
+              onChange={(event) => onColor("background", event.target.value)}
+              className="h-7 w-7 cursor-pointer rounded border-0 bg-transparent p-0"
+            />
+            <datalist id="editor-highlight-colors">
+              {HIGHLIGHT_COLOR_OPTIONS.map((color) => <option key={color} value={color} />)}
+            </datalist>
+          </div>
+
+          <ToolbarSeparator />
+
+          {ALIGN_OPTIONS.map((option) => (
+            <ToolbarButton
+              key={option.label}
+              title={option.label}
+              active={option.value ? activeFormats.align === option.value : !activeFormats.align}
+              onClick={() => onFormat("align", option.value)}
+            >
+              <AlignIcon type={option.icon} />
+            </ToolbarButton>
+          ))}
+
+          <ToolbarSeparator />
+
+          <ToolbarButton title="Ordered list" active={activeFormats.list === "ordered"} onClick={() => onFormat("list", activeFormats.list === "ordered" ? false : "ordered")}>
+            <ListIcon ordered />
+          </ToolbarButton>
+          <ToolbarButton title="Bullet list" active={activeFormats.list === "bullet"} onClick={() => onFormat("list", activeFormats.list === "bullet" ? false : "bullet")}>
+            <ListIcon />
+          </ToolbarButton>
+
+          <ToolbarSeparator />
+
           <div className="relative">
-            <button onClick={() => { if (!formatOpen) onCaptureFormatRange(); setFormatOpen(!formatOpen); }} className="toolbar-action-btn flex items-center justify-center text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-md px-3 py-1.5 w-auto gap-1.5 text-xs font-semibold transition-all shadow-sm" title="Advanced Format">
-              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>
-              <span className="ml-1">Format</span>
-            </button>
-
-            {formatOpen && (
-              <div className="absolute right-0 mt-2 w-72 bg-white border border-slate-200 rounded-lg p-3 shadow-lg z-50">
-                <div className="mb-3">
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Font Family</label>
-                  <select className="w-full border rounded px-2 py-1 text-sm" value={dialogFont} onChange={(e) => setDialogFont(e.target.value)}>
-                    <option value="">(default)</option>
-                    {FONT_OPTIONS.filter(({ value }) => value).map(({ label, value }) => <option key={`${label}-${value}`} value={value}>{label}</option>)}
-                  </select>
-                </div>
-
-                <div className="mb-3">
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Font Size</label>
-                  <select className="w-full border rounded px-2 py-1 text-sm" value={dialogSize} onChange={(e) => setDialogSize(e.target.value)}>
-                    <option value="">(default)</option>
-                    {SIZE_OPTIONS.filter(({ value }) => value).map(({ label, value }) => <option key={`${label}-${value}`} value={value}>{label}</option>)}
-                  </select>
-                </div>
-
-                <div className="mb-3">
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Text Color</label>
-                  <div className="flex flex-wrap gap-2">
-                    {colors.map((c, i) => (
-                      <button key={i} onClick={() => setDialogColor(c)} className={`w-6 h-6 rounded-full border-2 transition-transform ${dialogColor === c ? 'border-indigo-500 ring-2 ring-indigo-200 scale-105' : 'border-transparent shadow-sm'}`} style={{ backgroundColor: c || '#e2e8f0' }} title={c || 'Default'} />
-                    ))}
-                  </div>
-                </div>
-
-                <div className="flex justify-end gap-2 mt-2">
-                  <button onClick={() => { onCancelFormat(); setFormatOpen(false); }} className="px-3 py-1.5 text-sm bg-slate-100 rounded">Cancel</button>
-                  <button onClick={() => { onApplyFormat(); setFormatOpen(false); }} className="px-3 py-1.5 text-sm bg-indigo-600 text-white rounded">Apply</button>
-                </div>
-              </div>
+            <ToolbarButton title="Insert link" active={!!activeFormats.link || isLinkPopoverOpen} onClick={onLinkPopoverToggle}>
+              <LinkIcon />
+            </ToolbarButton>
+            {isLinkPopoverOpen && (
+              <ToolbarPopover
+                title="Insert link"
+                inputLabel="Link URL"
+                value={linkUrl}
+                placeholder="https://example.com"
+                submitLabel="Apply"
+                onChange={onSetLinkUrl}
+                onClose={onLinkPopoverToggle}
+                onSubmit={onApplyLink}
+              />
             )}
           </div>
+
+          <div className="relative">
+            <ToolbarButton title="Insert image by URL" active={isImagePopoverOpen} onClick={onImagePopoverToggle}>
+              <ImageIcon />
+            </ToolbarButton>
+            {isImagePopoverOpen && (
+              <ToolbarPopover
+                title="Insert image"
+                inputLabel="Image URL"
+                value={imageUrl}
+                placeholder="https://example.com/image.png"
+                submitLabel="Insert"
+                onChange={onSetImageUrl}
+                onClose={onImagePopoverToggle}
+                onSubmit={onApplyImageUrl}
+              />
+            )}
+          </div>
+
+          <ToolbarButton title="Clear formatting" onClick={onClearFormatting}>
+            <ClearIcon />
+          </ToolbarButton>
         </div>
       </div>
     </div>
@@ -418,48 +640,7 @@ const CustomToolbar = ({ onUndo, onRedo, onSave, formatOpen, setFormatOpen, onCa
 };
 
 const modulesFactory = () => ({
-  toolbar: {
-    container: "#custom-toolbar",
-    handlers: {
-      font: function(value) {
-        const range = this.quill.getSelection();
-        const formatValue = value || false;
-        this.quill.focus();
-        if (range && range.length > 0) this.quill.formatText(range.index, range.length, 'font', formatValue, 'user');
-        else this.quill.format('font', formatValue, 'user');
-      },
-      size: function(value) {
-        const range = this.quill.getSelection();
-        const formatValue = value || false;
-        this.quill.focus();
-        if (range && range.length > 0) this.quill.formatText(range.index, range.length, 'size', formatValue, 'user');
-        else this.quill.format('size', formatValue, 'user');
-      },
-      shape: function(value) {
-        if (!value) return;
-        const range = this.quill.getSelection(true);
-        const index = range ? range.index : this.quill.getLength();
-        // default size
-        const payload = { type: value, width: 120, height: 80, fill: '#60a5fa' };
-        this.quill.insertEmbed(index, 'shape', payload, 'user');
-        this.quill.setSelection(index + 1, 0);
-        const shapeSelect = document.querySelector('.ql-shape'); if (shapeSelect) shapeSelect.value = '';
-      },
-      image: function() {
-        const input = document.createElement('input'); input.type = 'file'; input.accept = 'image/*';
-        input.onchange = () => {
-          const file = input.files[0]; if (!file) return; const reader = new FileReader();
-          reader.onload = (e) => {
-            const quill = this.quill; if (!quill) return;
-            const range = quill.getSelection(true); const index = range ? range.index : quill.getLength() - 1;
-            quill.insertEmbed(index, 'custom-image', { src: e.target.result }, 'user'); quill.setSelection(index + 1);
-          };
-          reader.readAsDataURL(file);
-        };
-        input.click();
-      }
-    }
-  },
+  toolbar: false,
   history: { delay: 1000, maxStack: 100, userOnly: true },
   clipboard: { matchVisual: false }
 });
@@ -513,49 +694,146 @@ const EditorPage = () => {
   const [copyMessage, setCopyMessage] = useState('');
   const [documentError, setDocumentError] = useState('');
 
-  // Format dialog hooks
-  const [formatOpen, setFormatOpen] = useState(false);
-  const [formatRange, setFormatRange] = useState(null);
-  const [dialogFont, setDialogFont] = useState('');
-  const [dialogSize, setDialogSize] = useState('');
-  const [dialogColor, setDialogColor] = useState('');
+  const [activeFormats, setActiveFormats] = useState({});
+  const [isLinkPopoverOpen, setIsLinkPopoverOpen] = useState(false);
+  const [isImagePopoverOpen, setIsImagePopoverOpen] = useState(false);
+  const [linkUrl, setLinkUrl] = useState('');
+  const [imageUrl, setImageUrl] = useState('');
+  const [savedToolbarRange, setSavedToolbarRange] = useState(null);
 
-  const getEditor = useCallback(() => safeGetEditor(quillRef), []);
+  const getEditor = useCallback(() => {
+    try {
+      const quill = quillRef.current.getEditor();
+      return quill;
+    } catch {
+      return null;
+    }
+  }, []);
   const modules = useMemo(() => modulesFactory(), []);
 
-  const captureFormatRange = useCallback(() => {
+  const refreshActiveFormats = useCallback(() => {
     const quill = getEditor();
-    const range = quill?.getSelection() || null;
-    setFormatRange(range);
-
     if (!quill) return;
+
+    const range = quill.getSelection();
+    if (!range) {
+      setActiveFormats({});
+      return;
+    }
 
     const currentFormats = quill.getFormat(range || undefined);
-    setDialogFont(typeof currentFormats.font === 'string' ? normalizeFontValue(currentFormats.font) : '');
-    setDialogSize(typeof currentFormats.size === 'string' ? currentFormats.size : '');
-    setDialogColor(typeof currentFormats.color === 'string' ? currentFormats.color : '');
+    setActiveFormats({
+      ...currentFormats,
+      font: typeof currentFormats.font === 'string' ? normalizeFontValue(currentFormats.font) : currentFormats.font,
+    });
   }, [getEditor]);
 
-  const applyFormatting = useCallback(() => {
+  const captureToolbarRange = useCallback(() => {
+    const quill = getEditor();
+    if (!quill) return null;
+
+    const range = quill.getSelection(true);
+    setSavedToolbarRange(range);
+    return range;
+  }, [getEditor]);
+
+  const updateToolbarSoon = useCallback(() => {
+    window.setTimeout(refreshActiveFormats, 0);
+  }, [refreshActiveFormats]);
+
+  const formatSelection = useCallback((format, value) => {
     const quill = getEditor();
     if (!quill) return;
 
-    const range = quill.getSelection() || formatRange;
-    const formatsToApply = {
-      font: dialogFont || false,
-      size: dialogSize || false,
-      color: dialogColor || false,
-    };
+    quill.focus();
+    quill.format(format, value, 'user');
+    updateToolbarSoon();
+  }, [getEditor, updateToolbarSoon]);
+
+  const handleToolbarColor = useCallback((format, value) => {
+    formatSelection(format, value || false);
+  }, [formatSelection]);
+
+  const handleClearFormatting = useCallback(() => {
+    const quill = getEditor();
+    if (!quill) return;
 
     quill.focus();
-    Object.entries(formatsToApply).forEach(([format, value]) => {
-      if (range && range.length > 0) {
-        quill.formatText(range.index, range.length, format, value, 'user');
-      } else {
-        quill.format(format, value, 'user');
-      }
-    });
-  }, [dialogColor, dialogFont, dialogSize, formatRange, getEditor]);
+    const range = quill.getSelection(true);
+    if (!range) return;
+
+    if (range.length > 0) {
+      quill.removeFormat(range.index, range.length, 'user');
+    } else {
+      ["bold", "italic", "underline", "strike", "color", "background", "font", "size", "link", "header", "align", "list"].forEach((format) => {
+        quill.format(format, false, 'user');
+      });
+    }
+
+    updateToolbarSoon();
+  }, [getEditor, updateToolbarSoon]);
+
+  const toggleLinkPopover = useCallback(() => {
+    const quill = getEditor();
+    if (quill) {
+      const range = quill.getSelection(true);
+      const formatsAtRange = range ? quill.getFormat(range) : {};
+      setSavedToolbarRange(range);
+      setLinkUrl(typeof formatsAtRange.link === 'string' ? formatsAtRange.link : '');
+    }
+
+    setIsImagePopoverOpen(false);
+    setIsLinkPopoverOpen((isOpen) => !isOpen);
+  }, [getEditor]);
+
+  const toggleImagePopover = useCallback(() => {
+    captureToolbarRange();
+    setImageUrl('');
+    setIsLinkPopoverOpen(false);
+    setIsImagePopoverOpen((isOpen) => !isOpen);
+  }, [captureToolbarRange]);
+
+  const applyLink = useCallback((event) => {
+    event.preventDefault();
+    const quill = getEditor();
+    if (!quill) return;
+
+    const range = savedToolbarRange || quill.getSelection(true);
+    if (!range) return;
+
+    const url = linkUrl.trim();
+    quill.focus();
+
+    if (!url) {
+      if (range.length > 0) quill.formatText(range.index, range.length, 'link', false, 'user');
+    } else if (range.length > 0) {
+      quill.formatText(range.index, range.length, 'link', url, 'user');
+      quill.setSelection(range.index + range.length, 0, 'silent');
+    } else {
+      quill.insertText(range.index, url, 'link', url, 'user');
+      quill.setSelection(range.index + url.length, 0, 'silent');
+    }
+
+    setIsLinkPopoverOpen(false);
+    setLinkUrl('');
+    updateToolbarSoon();
+  }, [getEditor, linkUrl, savedToolbarRange, updateToolbarSoon]);
+
+  const applyImageUrl = useCallback((event) => {
+    event.preventDefault();
+    const quill = getEditor();
+    const url = imageUrl.trim();
+    if (!quill || !url) return;
+
+    quill.focus();
+    const range = savedToolbarRange || quill.getSelection(true);
+    const index = range ? range.index : Math.max(0, quill.getLength() - 1);
+    quill.insertEmbed(index, 'custom-image', { src: url }, 'user');
+    quill.setSelection(index + 1, 0, 'silent');
+    setIsImagePopoverOpen(false);
+    setImageUrl('');
+    updateToolbarSoon();
+  }, [getEditor, imageUrl, savedToolbarRange, updateToolbarSoon]);
 
   // Basic socket connection (lightweight)
   useEffect(() => {
@@ -571,6 +849,21 @@ const EditorPage = () => {
     s.on('connect', onConnect); s.on('disconnect', onDisconnect);
     return () => { s.off('connect', onConnect); s.off('disconnect', onDisconnect); s.disconnect(); };
   }, []);
+
+  useEffect(() => {
+    const quill = getEditor();
+    if (!quill || documentError) return;
+
+    const updateFormats = () => refreshActiveFormats();
+    quill.on('selection-change', updateFormats);
+    quill.on('text-change', updateFormats);
+    refreshActiveFormats();
+
+    return () => {
+      quill.off('selection-change', updateFormats);
+      quill.off('text-change', updateFormats);
+    };
+  }, [documentError, getEditor, refreshActiveFormats]);
 
   // Load document once socket + quill available
   useEffect(() => {
@@ -759,10 +1052,34 @@ const EditorPage = () => {
     }
   };
 
-  // Editor action helpers (simple)
-  const onUndo = () => { const q = safeGetEditor(quillRef); if (q) q.history.undo(); };
-  const onRedo = () => { const q = safeGetEditor(quillRef); if (q) q.history.redo(); };
-  const onSave = async () => { const q = safeGetEditor(quillRef); if (!q) return; const content = q.getContents(); try { await axiosInstance.put(`/documents/${documentId}`, { content }); } catch (err) { console.error('save failed', err); } };
+  const onUndo = () => {
+    const quill = getEditor();
+    if (!quill) return;
+    quill.history.undo();
+    updateToolbarSoon();
+  };
+
+  const onRedo = () => {
+    const quill = getEditor();
+    if (!quill) return;
+    quill.history.redo();
+    updateToolbarSoon();
+  };
+
+  const onSave = async () => {
+    const quill = getEditor();
+    if (!quill) return;
+
+    try {
+      setIsSaving(true);
+      const content = quill.getContents();
+      await axiosInstance.put(`/documents/${documentId}`, { content });
+    } catch (err) {
+      console.error('save failed', err);
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   return (
     <div className="h-screen flex flex-col bg-[#f8fafc] font-sans selection:bg-indigo-100 selection:text-indigo-900 overflow-hidden">
@@ -822,8 +1139,26 @@ const EditorPage = () => {
       </header>
 
       {/* Editor Main Area */}
-      <main className="flex-1 flex flex-col relative bg-slate-50/30">
-        <CustomToolbar onUndo={onUndo} onRedo={onRedo} onSave={onSave} formatOpen={formatOpen} setFormatOpen={setFormatOpen} onCaptureFormatRange={captureFormatRange} dialogFont={dialogFont} setDialogFont={setDialogFont} dialogSize={dialogSize} setDialogSize={setDialogSize} dialogColor={dialogColor} setDialogColor={setDialogColor} onApplyFormat={applyFormatting} onCancelFormat={() => setFormatOpen(false)} />
+      <main className="flex-1 flex flex-col relative bg-[#f1f3f4]">
+        <CustomToolbar
+          activeFormats={activeFormats}
+          imageUrl={imageUrl}
+          isImagePopoverOpen={isImagePopoverOpen}
+          isLinkPopoverOpen={isLinkPopoverOpen}
+          linkUrl={linkUrl}
+          onApplyImageUrl={applyImageUrl}
+          onApplyLink={applyLink}
+          onClearFormatting={handleClearFormatting}
+          onColor={handleToolbarColor}
+          onFormat={formatSelection}
+          onImagePopoverToggle={toggleImagePopover}
+          onLinkPopoverToggle={toggleLinkPopover}
+          onRedo={onRedo}
+          onSave={onSave}
+          onSetImageUrl={setImageUrl}
+          onSetLinkUrl={setLinkUrl}
+          onUndo={onUndo}
+        />
         
         <div className="flex-1 overflow-y-auto w-full flex justify-center pb-24 pt-8 custom-scrollbar">
           {documentError ? (
