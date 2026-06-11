@@ -4,11 +4,20 @@ import User from "../models/UserModel.js";
 import ShareRequest from "../models/ShareRequestModel.js";
 import { sendShareNotification, sendInviteToUnregistered, sendRejectionNotification } from "../utils/emailService.js";
 
+const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
+
+const hasCollaborator = (document, userId) => (
+    Boolean(document?.collaborators?.some((collaboratorId) => collaboratorId.toString() === userId.toString()))
+);
+
 // Add collaborator via email
 export const addCollaborator = async (req, res) => {
     try {
         const { documentId } = req.params;
-        const { email } = req.body;
+        const email = normalizeEmail(req.body.email);
+        if (!email) {
+            return res.status(400).json({ message: "Email is required" });
+        }
         
         const document = await Document.findById(documentId).populate('owner');
         if (!document) {
@@ -23,7 +32,7 @@ export const addCollaborator = async (req, res) => {
 
         if (collaborator) {
             // Already a collaborator
-            if (document.collaborators.includes(collaborator._id)) {
+            if (hasCollaborator(document, collaborator._id)) {
                 return res.status(400).json({ message: "User is already a collaborator" });
             }
             
@@ -75,7 +84,10 @@ export const addCollaborator = async (req, res) => {
 export const removeCollaborator = async (req, res) => {
     try {
         const { documentId } = req.params;
-        const { email } = req.body;
+        const email = normalizeEmail(req.body.email);
+        if (!email) {
+            return res.status(400).json({ message: "Email is required" });
+        }
         
         const document = await Document.findById(documentId);
         if (!document) {
@@ -133,7 +145,7 @@ export const acceptShareRequest = async (req, res) => {
         }
         
         const document = await Document.findById(request.document);
-        if (document && !document.collaborators.includes(req.user._id)) {
+        if (document && !hasCollaborator(document, req.user._id)) {
             document.collaborators.push(req.user._id);
             await document.save();
         }
@@ -220,7 +232,10 @@ export const handleShareLink = async (req, res) => {
         
         // If already collaborator
         const document = await Document.findById(request.document._id);
-        if (document.collaborators.includes(req.user._id)) {
+        if (!document) {
+            return res.status(404).json({ message: "Document not found" });
+        }
+        if (hasCollaborator(document, req.user._id)) {
             return res.status(200).json({ documentId: request.document._id });
         }
 

@@ -10,13 +10,14 @@ import versionRouter from './routes/versionRoutes.js';
 import shareRouter from './routes/shareRoutes.js';
 //express application
 const app = exp();
+const allowedOrigins = (process.env.FRONTEND_URLS || process.env.FRONTEND_URL || "http://localhost:5173,http://localhost:5174")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 //cors middleware
 app.use(
   cors({
-    origin: [
-      "http://localhost:5173",
-      "http://localhost:5174",
-    ],
+    origin: allowedOrigins,
     credentials: true,
   })
 );

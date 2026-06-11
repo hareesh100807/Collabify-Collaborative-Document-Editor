@@ -267,6 +267,13 @@
 .ql-snow .ql-picker.ql-size .ql-picker-label[data-value="72px"]::before,
 .ql-snow .ql-picker.ql-size .ql-picker-item[data-value="72px"]::before { content: "72px" !important; }
 
+.ql-snow .ql-picker.ql-font .ql-picker-label[data-label]::before,
+.ql-snow .ql-picker.ql-font .ql-picker-item[data-label]::before,
+.ql-snow .ql-picker.ql-size .ql-picker-label[data-label]::before,
+.ql-snow .ql-picker.ql-size .ql-picker-item[data-label]::before {
+  content: attr(data-label) !important;
+}
+
 /* Apply font sizes in editor content */
 .ql-snow .ql-editor .ql-size-10px { font-size: 10px !important; }
 .ql-snow .ql-editor .ql-size-12px { font-size: 12px !important; }

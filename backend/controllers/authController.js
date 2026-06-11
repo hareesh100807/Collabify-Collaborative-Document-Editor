@@ -2,7 +2,6 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcrypt';
 import UserModel from '../models/UserModel.js';
 import { OAuth2Client } from 'google-auth-library';
-import fetch from 'node-fetch';
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
@@ -172,12 +171,10 @@ export const getMe= async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
     res.status(200).json({
-      payload: {
-        id: user._id,
-        username: user.username,
-        email: user.email,
-        profilePic: user.profilePic
-      }
+      id: user._id,
+      username: user.username,
+      email: user.email,
+      profilePic: user.profilePic
     });
   } catch (error) {
     console.error('Error fetching user data:', error);

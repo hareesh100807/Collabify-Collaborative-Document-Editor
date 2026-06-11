@@ -18,7 +18,7 @@ const AppRoutes = () => {
           </ProtectedRoute>
         } />
 
-        <Route path="/document/:id" element={
+        <Route path="/documents/:id" element={
           <ProtectedRoute>
             <EditorPage />
           </ProtectedRoute>

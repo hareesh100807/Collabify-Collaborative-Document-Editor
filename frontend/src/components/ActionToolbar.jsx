@@ -1,5 +1,3 @@
-import React from 'react';
-
 export const ActionToolbar = ({ onUndo, onRedo, onSave }) => (
   <div className="ribbon-section">
     <div className="ribbon-group">

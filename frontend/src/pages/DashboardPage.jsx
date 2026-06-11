@@ -351,27 +351,33 @@ const DashboardPage = () => {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [error, setError] = useState("");
-  const [hoverCard, setHoverCard] = useState(null);
-  const [hoverNewDoc, setHoverNewDoc] = useState(false);
-  const [hoverLogout, setHoverLogout] = useState(false);
-  const [hoverBell, setHoverBell] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
 
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-      const [docs, requests] = await Promise.all([getDocuments(), getShareRequests()]);
-      setDocuments(docs);
-      setShareRequests(requests);
-    } catch (err) {
-      setError("Failed to load documents. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   useEffect(() => {
-    if (user) fetchData();
+    if (!user) return;
+
+    let isMounted = true;
+    const fetchInitialData = async () => {
+      try {
+        const [docs, requests] = await Promise.all([getDocuments(), getShareRequests()]);
+        if (!isMounted) return;
+        setDocuments(docs);
+        setShareRequests(requests);
+      } catch {
+        if (isMounted) {
+          setError("Failed to load documents. Please try again.");
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    fetchInitialData();
+    return () => {
+      isMounted = false;
+    };
   }, [user]);
 
   const handleAcceptRequest = async (requestId) => {
@@ -381,7 +387,7 @@ const DashboardPage = () => {
       setShareRequests((prev) => prev.filter((req) => req._id !== requestId));
       const docs = await getDocuments();
       setDocuments(docs);
-    } catch (err) {
+    } catch {
       alert("Failed to accept request");
     } finally {
       setActionLoading(false);
@@ -393,7 +399,7 @@ const DashboardPage = () => {
       setActionLoading(true);
       await rejectShareRequest(requestId);
       setShareRequests((prev) => prev.filter((req) => req._id !== requestId));
-    } catch (err) {
+    } catch {
       alert("Failed to reject request");
     } finally {
       setActionLoading(false);
@@ -406,7 +412,7 @@ const DashboardPage = () => {
     try {
       const newDoc = await createDocument({ title: title.trim() || "Untitled", content: "" });
       navigate(`/documents/${newDoc._id}`);
-    } catch (err) {
+    } catch {
       setError("Failed to create document. Please try again.");
     }
   };
@@ -427,7 +433,7 @@ const DashboardPage = () => {
       setDeletingId(id);
       await deleteDocument(id);
       setDocuments((prev) => prev.filter((doc) => doc._id !== id));
-    } catch (err) {
+    } catch {
       setError("Failed to delete document. Please try again.");
     } finally {
       setDeletingId(null);

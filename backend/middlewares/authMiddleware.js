@@ -3,7 +3,6 @@ import UserModel from '../models/UserModel.js';
 
 const authMiddleware = async (req, res, next) => {
     try {
-        console.log("Cookies:", req.cookies); // Debugging line to check cookies
         //get token from cookies
         const token = req.cookies.token;
         //check token is present or not
@@ -26,7 +25,7 @@ const authMiddleware = async (req, res, next) => {
         next();
     } catch (error) {
         console.error('Error in authMiddleware:', error);
-        res.status(500).json({ message: "Internal Server Error" });
+        res.status(401).json({ message: "Unauthorized" });
     }
 }
 

@@ -142,7 +142,11 @@ export const shareDocument = async (req, res) => {
 
 export const renameDocument = async (req, res) => {
     try {
-        const { documentId, newTitle } = req.body;
+        const documentId = req.params.id;
+        const newTitle = req.body.newTitle ?? req.body.title;
+        if (!newTitle?.trim()) {
+            return res.status(400).json({ error: 'Title is required' });
+        }
         //find document
         const document = await Document.findById(documentId);
         if (!document) {
@@ -153,7 +157,7 @@ export const renameDocument = async (req, res) => {
             return res.status(403).json({ error: 'Only owner can rename the document' });
         }
         //update document title
-        document.title = newTitle;
+        document.title = newTitle.trim();
         await document.save();
         res.status(200).json({ message: 'Document renamed successfully' });
     } catch (error) {

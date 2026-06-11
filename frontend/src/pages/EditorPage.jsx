@@ -1,26 +1,68 @@
-/* eslint-disable tailwindcss/no-arbitrary-value, tailwindcss/classnames-order, tailwindcss/no-custom-classname */
-import React, { useEffect, useRef, useState, useCallback } from "react";
+/* eslint-disable react-hooks/set-state-in-effect */
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactQuill from "react-quill-new";
 import "react-quill-new/dist/quill.snow.css";
 import { useNavigate, useParams } from "react-router-dom";
 import { io } from "socket.io-client";
 import { useAuth } from "../context/AuthContext";
-import { addCollaborator, renameDocument, getCollaborators, generateShareLink, removeCollaborator } from "../api/documentService.js";
+import { addCollaborator, renameDocument } from "../api/documentService.js";
 import axiosInstance from "../api/axios.js";
+
+const FONT_OPTIONS = [
+  { label: "Default Font", value: "" },
+  { label: "Sans Serif", value: "sans-serif" },
+  { label: "Serif", value: "serif" },
+  { label: "Monospace", value: "monospace" },
+  { label: "Inter", value: "Inter, sans-serif" },
+  { label: "Roboto", value: "Roboto, Arial, sans-serif" },
+  { label: "Arial", value: "Arial, Helvetica, sans-serif" },
+  { label: "Georgia", value: "Georgia, serif" },
+  { label: "Times New Roman", value: "Times New Roman, Times, serif" },
+  { label: "Courier New", value: "Courier New, Courier, monospace" },
+  { label: "Comic Sans", value: "Comic Sans MS, Comic Sans, cursive" },
+  { label: "Trebuchet MS", value: "Trebuchet MS, sans-serif" },
+  { label: "Verdana", value: "Verdana, Geneva, sans-serif" },
+];
+
+const LEGACY_FONT_VALUE_ALIASES = {
+  inter: "Inter, sans-serif",
+  roboto: "Roboto, Arial, sans-serif",
+  arial: "Arial, Helvetica, sans-serif",
+  georgia: "Georgia, serif",
+  "times-new-roman": "Times New Roman, Times, serif",
+  "courier-new": "Courier New, Courier, monospace",
+  "comic-sans": "Comic Sans MS, Comic Sans, cursive",
+  "trebuchet-ms": "Trebuchet MS, sans-serif",
+  verdana: "Verdana, Geneva, sans-serif",
+};
+
+const normalizeFontValue = (value) => (
+  typeof value === "string" ? LEGACY_FONT_VALUE_ALIASES[value] || value : value
+);
+
+const SIZE_OPTIONS = [
+  { label: "Default Size", value: "" },
+  ...["10px", "12px", "14px", "16px", "18px", "20px", "24px", "28px", "36px", "48px", "72px"].map((size) => ({
+    label: size,
+    value: size,
+  })),
+];
 
 // Quill Font Registration (style attributor)
 const Font = ReactQuill.Quill.import("attributors/style/font");
+const baseFontAdd = Font.add.bind(Font);
+Font.add = (node, value) => baseFontAdd(node, normalizeFontValue(value));
 Font.whitelist = [
-  "sans-serif", "serif", "monospace",
-  "inter", "roboto", "arial", "georgia",
-  "times-new-roman", "courier-new", "comic-sans",
-  "trebuchet-ms", "verdana"
+  ...new Set([
+    ...FONT_OPTIONS.map(({ value }) => value).filter(Boolean),
+    ...Object.keys(LEGACY_FONT_VALUE_ALIASES),
+  ]),
 ];
 ReactQuill.Quill.register(Font, true);
 
 // Quill Size Registration
 const Size = ReactQuill.Quill.import("attributors/style/size");
-Size.whitelist = ["10px", "12px", "14px", "16px", "18px", "20px", "24px", "28px", "36px", "48px", "72px"];
+Size.whitelist = SIZE_OPTIONS.map(({ value }) => value).filter(Boolean);
 ReactQuill.Quill.register(Size, true);
 
 // --- Custom Shape and Image Blots ---
@@ -84,7 +126,7 @@ class ShapeBlot extends BlockEmbed {
         if (dx < -30) node.style.cssFloat = 'left';
         else if (dx > 30) node.style.cssFloat = 'right';
         else node.style.cssFloat = 'none';
-        try { node.releasePointerCapture(e.pointerId); } catch {};
+        try { node.releasePointerCapture(e.pointerId); } catch { /* pointer capture may already be released */ }
         window.removeEventListener('pointerup', up);
       };
       window.addEventListener('pointerup', up);
@@ -109,6 +151,10 @@ class CustomImageBlot extends BlockEmbed {
   static className = 'ql-custom-image-wrapper';
 
   static create(value) {
+    const payload = typeof value === 'string' ? { src: value } : (value || {});
+    const initialWidth = Number(payload.width) || 360;
+    const initialHeight = Number(payload.height) || null;
+    const initialFloat = payload.float || 'none';
     const node = super.create();
     node.setAttribute('contenteditable', 'false');
     node.style.display = 'inline-block';
@@ -116,13 +162,18 @@ class CustomImageBlot extends BlockEmbed {
     node.style.userSelect = 'none';
     node.style.position = 'relative';
     node.style.margin = '0 8px 8px 0';
+    node.dataset.src = payload.src || '';
+    node.dataset.width = initialWidth;
+    node.dataset.float = initialFloat;
+    if (initialHeight) node.dataset.height = initialHeight;
+    node.style.cssFloat = initialFloat === 'none' ? '' : initialFloat;
 
     const img = document.createElement('img');
     img.className = 'ql-custom-image';
-    img.src = typeof value === 'string' ? value : (value.src || '');
     img.style.display = 'block';
     img.style.maxWidth = '100%';
-    img.style.height = 'auto';
+    img.style.width = `${initialWidth}px`;
+    img.style.height = initialHeight ? `${initialHeight}px` : 'auto';
     img.setAttribute('draggable', 'false');
     node.appendChild(img);
 
@@ -143,7 +194,6 @@ class CustomImageBlot extends BlockEmbed {
     });
 
     const positionHandles = () => {
-      const rect = img.getBoundingClientRect();
       // calculate relative positions
       const w = img.offsetWidth; const hgt = img.offsetHeight;
       const coords = {
@@ -155,6 +205,22 @@ class CustomImageBlot extends BlockEmbed {
         h.el.style.top = `${y}px`;
       });
     };
+
+    const syncNaturalImageSize = () => {
+      if (payload.width || !img.naturalWidth) return;
+
+      const width = Math.min(img.naturalWidth, 520);
+      const height = Math.round(width * (img.naturalHeight / img.naturalWidth));
+      node.dataset.width = width;
+      node.dataset.height = height;
+      img.style.width = `${width}px`;
+      img.style.height = `${height}px`;
+      positionHandles();
+    };
+
+    img.addEventListener('load', syncNaturalImageSize);
+    img.src = payload.src || '';
+    if (img.complete) syncNaturalImageSize();
 
     // show handles on click/focus, hide on blur
     node.addEventListener('click', (e) => {
@@ -170,28 +236,32 @@ class CustomImageBlot extends BlockEmbed {
       const onPointerDown = (ev) => {
         ev.preventDefault(); ev.stopPropagation();
         startX = ev.clientX; startY = ev.clientY;
-        startW = img.offsetWidth; startH = img.offsetHeight; startAspect = startW / startH;
+        startW = img.offsetWidth; startH = img.offsetHeight; startAspect = startH ? startW / startH : 1;
         h.el.setPointerCapture(ev.pointerId);
         const move = (e) => {
           let dx = e.clientX - startX, dy = e.clientY - startY;
           let newW = startW, newH = startH;
           if (['nw','ne','se','sw'].includes(h.pos)) {
             // preserve aspect ratio for corner handles
-            if (Math.abs(dx) > Math.abs(dy)) newW = startW + (h.pos.includes('w') ? -dx : dx);
-            else newH = startH + (h.pos.includes('n') ? -dy : dy);
-            // sync to aspect
-            newW = Math.max(10, newW);
-            newH = Math.max(10, Math.round(newW / startAspect));
+            if (Math.abs(dx) > Math.abs(dy)) {
+              newW = Math.max(10, startW + (h.pos.includes('w') ? -dx : dx));
+              newH = Math.max(10, Math.round(newW / startAspect));
+            } else {
+              newH = Math.max(10, startH + (h.pos.includes('n') ? -dy : dy));
+              newW = Math.max(10, Math.round(newH * startAspect));
+            }
           } else if (h.pos === 'n' || h.pos === 's') {
             newH = Math.max(10, startH + (h.pos === 'n' ? -dy : dy));
           } else { // e or w
             newW = Math.max(10, startW + (h.pos === 'w' ? -dx : dx));
           }
+          node.dataset.width = newW;
+          node.dataset.height = newH;
           img.style.width = `${newW}px`;
-          img.style.height = 'auto';
+          img.style.height = `${newH}px`;
           positionHandles();
         };
-        const up = (e) => { try { h.el.releasePointerCapture(e.pointerId); } catch {} ; window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+        const up = (e) => { try { h.el.releasePointerCapture(e.pointerId); } catch { /* pointer capture may already be released */ } window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
         window.addEventListener('pointermove', move);
         window.addEventListener('pointerup', up);
       };
@@ -209,7 +279,8 @@ class CustomImageBlot extends BlockEmbed {
         if (dx < -30) node.style.cssFloat = 'left';
         else if (dx > 30) node.style.cssFloat = 'right';
         else node.style.cssFloat = 'none';
-        try { node.releasePointerCapture(e.pointerId); } catch {};
+        node.dataset.float = node.style.cssFloat || 'none';
+        try { node.releasePointerCapture(e.pointerId); } catch { /* pointer capture may already be released */ }
         window.removeEventListener('pointerup', up);
       };
       window.addEventListener('pointerup', up);
@@ -220,7 +291,12 @@ class CustomImageBlot extends BlockEmbed {
 
   static value(domNode) {
     const img = domNode.querySelector('img');
-    return img ? img.src : '';
+    return {
+      src: img ? img.src : domNode.dataset.src,
+      width: parseInt(domNode.dataset.width, 10) || img?.offsetWidth || 360,
+      height: parseInt(domNode.dataset.height, 10) || img?.offsetHeight || null,
+      float: domNode.dataset.float || 'none',
+    };
   }
 }
 
@@ -231,15 +307,20 @@ ReactQuill.Quill.register(CustomImageBlot);
 const safeGetEditor = (ref) => {
   try {
     return ref?.current?.getEditor ? ref.current.getEditor() : null;
-  } catch (err) {
+  } catch {
     return null;
   }
 };
 
 const colors = ["", "#000000", "#e60000", "#ff9900", "#ffff00", "#008a00", "#0066cc", "#9933ff", "#4f46e5"];
 
+const getActiveUserName = (activeUser) => {
+  if (typeof activeUser === 'string') return activeUser;
+  return activeUser?.username || activeUser?.name || activeUser?.email || 'Collaborator';
+};
+
 // Small CustomToolbar component used by the editor
-const CustomToolbar = ({ onUndo, onRedo, onSave, formatOpen, setFormatOpen, dialogFont, setDialogFont, dialogSize, setDialogSize, dialogColor, setDialogColor, onApplyFormat, onCancelFormat }) => {
+const CustomToolbar = ({ onUndo, onRedo, onSave, formatOpen, setFormatOpen, onCaptureFormatRange, dialogFont, setDialogFont, dialogSize, setDialogSize, dialogColor, setDialogColor, onApplyFormat, onCancelFormat }) => {
   return (
     <div id="custom-toolbar" className="custom-ribbon bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-10 w-full flex justify-center shadow-sm">
       <div className="flex items-center justify-between w-full max-w-4xl mx-auto py-1.5 px-4">
@@ -259,11 +340,11 @@ const CustomToolbar = ({ onUndo, onRedo, onSave, formatOpen, setFormatOpen, dial
           <div className="w-px h-5 bg-slate-200 mx-1"></div>
 
           <span className="ql-formats">
-            <select className="ql-font" defaultValue="inter" title="Font Family">
-              {Font.whitelist.map(f => <option value={f} key={f}>{f}</option>)}
+            <select className="ql-font" defaultValue="" title="Font Family">
+              {FONT_OPTIONS.map(({ label, value }) => <option value={value} key={`${label}-${value}`}>{label}</option>)}
             </select>
-            <select className="ql-size" defaultValue="16px" title="Font Size">
-              {Size.whitelist.map(s => <option value={s} key={s}>{s}</option>)}
+            <select className="ql-size" defaultValue="" title="Font Size">
+              {SIZE_OPTIONS.map(({ label, value }) => <option value={value} key={`${label}-${value}`}>{label}</option>)}
             </select>
             <select className="ql-shape" defaultValue="" title="Insert Shape">
               <option value="">Shape</option>
@@ -284,13 +365,14 @@ const CustomToolbar = ({ onUndo, onRedo, onSave, formatOpen, setFormatOpen, dial
             <button className="ql-bold hover:bg-indigo-50 rounded" title="Bold" />
             <button className="ql-italic hover:bg-indigo-50 rounded" title="Italic" />
             <button className="ql-underline hover:bg-indigo-50 rounded" title="Underline" />
+            <button className="ql-image hover:bg-indigo-50 rounded" title="Insert Image" />
           </span>
         </div>
 
         <div className="flex items-center relative">
           {/* Inline format popover placed in toolbar */}
           <div className="relative">
-            <button onClick={() => setFormatOpen(!formatOpen)} className="toolbar-action-btn flex items-center justify-center text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-md px-3 py-1.5 w-auto gap-1.5 text-xs font-semibold transition-all shadow-sm" title="Advanced Format">
+            <button onClick={() => { if (!formatOpen) onCaptureFormatRange(); setFormatOpen(!formatOpen); }} className="toolbar-action-btn flex items-center justify-center text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-md px-3 py-1.5 w-auto gap-1.5 text-xs font-semibold transition-all shadow-sm" title="Advanced Format">
               <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/></svg>
               <span className="ml-1">Format</span>
             </button>
@@ -301,7 +383,7 @@ const CustomToolbar = ({ onUndo, onRedo, onSave, formatOpen, setFormatOpen, dial
                   <label className="block text-xs font-medium text-slate-600 mb-1">Font Family</label>
                   <select className="w-full border rounded px-2 py-1 text-sm" value={dialogFont} onChange={(e) => setDialogFont(e.target.value)}>
                     <option value="">(default)</option>
-                    {Font.whitelist.map(f => <option key={f} value={f}>{f}</option>)}
+                    {FONT_OPTIONS.filter(({ value }) => value).map(({ label, value }) => <option key={`${label}-${value}`} value={value}>{label}</option>)}
                   </select>
                 </div>
 
@@ -309,7 +391,7 @@ const CustomToolbar = ({ onUndo, onRedo, onSave, formatOpen, setFormatOpen, dial
                   <label className="block text-xs font-medium text-slate-600 mb-1">Font Size</label>
                   <select className="w-full border rounded px-2 py-1 text-sm" value={dialogSize} onChange={(e) => setDialogSize(e.target.value)}>
                     <option value="">(default)</option>
-                    {Size.whitelist.map(s => <option key={s} value={s}>{s}</option>)}
+                    {SIZE_OPTIONS.filter(({ value }) => value).map(({ label, value }) => <option key={`${label}-${value}`} value={value}>{label}</option>)}
                   </select>
                 </div>
 
@@ -335,23 +417,23 @@ const CustomToolbar = ({ onUndo, onRedo, onSave, formatOpen, setFormatOpen, dial
   );
 };
 
-const modulesFactory = (quillRef, setPendingShape) => ({
+const modulesFactory = () => ({
   toolbar: {
     container: "#custom-toolbar",
     handlers: {
       font: function(value) {
-        if (!value) return;
         const range = this.quill.getSelection();
+        const formatValue = value || false;
         this.quill.focus();
-        if (range && range.length > 0) this.quill.formatText(range.index, range.length, 'font', value, 'user');
-        else this.quill.format('font', value, 'user');
+        if (range && range.length > 0) this.quill.formatText(range.index, range.length, 'font', formatValue, 'user');
+        else this.quill.format('font', formatValue, 'user');
       },
       size: function(value) {
-        if (!value) return;
         const range = this.quill.getSelection();
+        const formatValue = value || false;
         this.quill.focus();
-        if (range && range.length > 0) this.quill.formatText(range.index, range.length, 'size', value, 'user');
-        else this.quill.format('size', value, 'user');
+        if (range && range.length > 0) this.quill.formatText(range.index, range.length, 'size', formatValue, 'user');
+        else this.quill.format('size', formatValue, 'user');
       },
       shape: function(value) {
         if (!value) return;
@@ -368,9 +450,9 @@ const modulesFactory = (quillRef, setPendingShape) => ({
         input.onchange = () => {
           const file = input.files[0]; if (!file) return; const reader = new FileReader();
           reader.onload = (e) => {
-            const quill = safeGetEditor(quillRef); if (!quill) return;
+            const quill = this.quill; if (!quill) return;
             const range = quill.getSelection(true); const index = range ? range.index : quill.getLength() - 1;
-            quill.insertEmbed(index, 'custom-image', e.target.result, 'user'); quill.setSelection(index + 1);
+            quill.insertEmbed(index, 'custom-image', { src: e.target.result }, 'user'); quill.setSelection(index + 1);
           };
           reader.readAsDataURL(file);
         };
@@ -400,7 +482,7 @@ if (typeof document !== 'undefined' && !document.getElementById('quill-custom-st
   style.id = 'quill-custom-styles';
   style.innerHTML = `
     .ql-custom-image-wrapper { display:inline-block; vertical-align:middle; margin:0 8px 8px 0; }
-    .ql-custom-image-wrapper img { display:block; max-width:600px; height:auto; }
+    .ql-custom-image-wrapper img { display:block; max-width:100%; margin:0 !important; }
     .ql-custom-image-wrapper .ql-resize-handle { display:none; }
     /* shown only when wrapper is selected; handled via JS click events */
     .ql-shape-embed { display:inline-block; vertical-align:middle; margin:0 8px 8px 0; }
@@ -424,15 +506,12 @@ const EditorPage = () => {
   const [titleInput, setTitleInput] = useState('');
   const [activeUsers, setActiveUsers] = useState([]);
   const [typingUser, setTypingUser] = useState('');
-  const [shareEmail, setShareEmail] = useState('');
-  const [shareLoading, setShareLoading] = useState(false);
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [collaboratorEmail, setCollaboratorEmail] = useState('');
   const [shareMessage, setShareMessage] = useState('');
-  const [shareModalOpen, setShareModalOpen] = useState(false);
-  const [collaboratorsList, setCollaboratorsList] = useState([]);
-  const [shareLink, setShareLink] = useState('');
-  const [linkCopied, setLinkCopied] = useState(false);
-  const [pendingShape, setPendingShape] = useState(null);
-  useEffect(() => { window.__REACT_SHAPE_SETTER__ = setPendingShape; return () => { if (window.__REACT_SHAPE_SETTER__ === setPendingShape) delete window.__REACT_SHAPE_SETTER__; }; }, [setPendingShape]);
+  const [shareLoading, setShareLoading] = useState(false);
+  const [copyMessage, setCopyMessage] = useState('');
+  const [documentError, setDocumentError] = useState('');
 
   // Format dialog hooks
   const [formatOpen, setFormatOpen] = useState(false);
@@ -441,17 +520,54 @@ const EditorPage = () => {
   const [dialogSize, setDialogSize] = useState('');
   const [dialogColor, setDialogColor] = useState('');
 
-  // modules use quillRef
-  const modules = modulesFactory(quillRef, setPendingShape);
+  const getEditor = useCallback(() => safeGetEditor(quillRef), []);
+  const modules = useMemo(() => modulesFactory(), []);
+
+  const captureFormatRange = useCallback(() => {
+    const quill = getEditor();
+    const range = quill?.getSelection() || null;
+    setFormatRange(range);
+
+    if (!quill) return;
+
+    const currentFormats = quill.getFormat(range || undefined);
+    setDialogFont(typeof currentFormats.font === 'string' ? normalizeFontValue(currentFormats.font) : '');
+    setDialogSize(typeof currentFormats.size === 'string' ? currentFormats.size : '');
+    setDialogColor(typeof currentFormats.color === 'string' ? currentFormats.color : '');
+  }, [getEditor]);
+
+  const applyFormatting = useCallback(() => {
+    const quill = getEditor();
+    if (!quill) return;
+
+    const range = quill.getSelection() || formatRange;
+    const formatsToApply = {
+      font: dialogFont || false,
+      size: dialogSize || false,
+      color: dialogColor || false,
+    };
+
+    quill.focus();
+    Object.entries(formatsToApply).forEach(([format, value]) => {
+      if (range && range.length > 0) {
+        quill.formatText(range.index, range.length, format, value, 'user');
+      } else {
+        quill.format(format, value, 'user');
+      }
+    });
+  }, [dialogColor, dialogFont, dialogSize, formatRange, getEditor]);
 
   // Basic socket connection (lightweight)
   useEffect(() => {
-    const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:5000';
+    const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:4000';
     const s = io(backendUrl, { withCredentials: true });
     setSocket(s);
     setIsSocketConnected(!!s.connected);
     const onConnect = () => setIsSocketConnected(true);
-    const onDisconnect = () => setIsSocketConnected(false);
+    const onDisconnect = () => {
+      setIsSocketConnected(false);
+      setTypingUser('');
+    };
     s.on('connect', onConnect); s.on('disconnect', onDisconnect);
     return () => { s.off('connect', onConnect); s.off('disconnect', onDisconnect); s.disconnect(); };
   }, []);
@@ -465,14 +581,75 @@ const EditorPage = () => {
     socket.emit('join-document', documentId);
     const onLoad = (doc) => {
       didLoad = true;
+      setDocumentError('');
       setDocumentTitle(doc.title || 'Untitled Document');
       try { quill.setContents(doc.content || { ops: [] }); } catch { quill.setText(''); }
       quill.enable(true);
     };
+    const onDocumentError = () => {
+      didLoad = true;
+      quill.enable(false);
+      setDocumentError('Document not found or you do not have access.');
+    };
     socket.once('load-document', onLoad);
+    socket.once('document-not-found', onDocumentError);
+    socket.once('not-authorized', onDocumentError);
     const fallback = setTimeout(() => { if (!didLoad) quill.enable(true); }, 2000);
-    return () => { socket.off('load-document', onLoad); clearTimeout(fallback); };
+    return () => {
+      socket.off('load-document', onLoad);
+      socket.off('document-not-found', onDocumentError);
+      socket.off('not-authorized', onDocumentError);
+      clearTimeout(fallback);
+    };
   }, [socket, documentId]);
+
+  useEffect(() => {
+    const quill = getEditor();
+    if (!socket || !quill) return;
+
+    const receiveChangesHandler = (delta) => {
+      quill.updateContents(delta, 'api');
+    };
+
+    socket.on('receive-changes', receiveChangesHandler);
+    return () => { socket.off('receive-changes', receiveChangesHandler); };
+  }, [getEditor, socket]);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const typingHandler = ({ username }) => {
+      if (username && username !== user?.username) {
+        setTypingUser(`${username} is typing...`);
+      }
+    };
+    const stoppedTypingHandler = ({ username }) => {
+      if (!username || username === user?.username) return;
+      setTypingUser('');
+    };
+
+    socket.on('user-typing', typingHandler);
+    socket.on('user-stopped-typing', stoppedTypingHandler);
+
+    return () => {
+      socket.off('user-typing', typingHandler);
+      socket.off('user-stopped-typing', stoppedTypingHandler);
+    };
+  }, [socket, user?.username]);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const activeUsersHandler = (users) => {
+      const normalizedUsers = Array.isArray(users)
+        ? users
+        : users?.activeUsers || users?.users || [];
+      setActiveUsers(normalizedUsers);
+    };
+
+    socket.on('active-users', activeUsersHandler);
+    return () => { socket.off('active-users', activeUsersHandler); };
+  }, [socket]);
 
   // Send changes (simplified)
   useEffect(() => {
@@ -518,7 +695,7 @@ const EditorPage = () => {
     return () => {
       clearTimeout(typingTimeout); clearTimeout(saveTimeout);
       quill.off('text-change', textChangeHandler);
-      try { quill.root.removeEventListener('blur', blurHandler); } catch {};
+      try { quill.root.removeEventListener('blur', blurHandler); } catch { /* editor root may already be detached */ }
     };
   }, [socket, documentId, user]);
 
@@ -538,61 +715,47 @@ const EditorPage = () => {
     }
   };
 
-  // Share handler
-  const handleShareDocument = async () => {
-    if (!shareEmail.trim()) return; 
-    try {
-      setShareLoading(true);
-      setShareMessage('');
-      const response = await addCollaborator(documentId, shareEmail);
-      setShareMessage(response.message || 'Collaborator added');
-      setShareEmail('');
-      // refresh collaborators list if modal open
-      try { const data = await getCollaborators(documentId); setCollaboratorsList(data.collaborators || []); } catch {}
-    } catch (err) {
-      setShareMessage(err?.response?.data?.message || 'Error sharing document');
-    } finally { setShareLoading(false); setTimeout(() => setShareMessage(''), 3000); }
+  const openShareModal = () => {
+    setIsShareModalOpen(true);
+    setShareMessage('');
+    setCopyMessage('');
   };
 
-  const openShareModal = async () => {
-    setShareModalOpen(true);
-    try {
-      const data = await getCollaborators(documentId);
-      setCollaboratorsList(data.collaborators || []);
-    } catch (err) {
-      console.error('Failed to load collaborators', err);
-    }
-  };
-
-  const closeShareModal = () => { setShareModalOpen(false); setShareLink(''); setLinkCopied(false); };
-
-  const handleGenerateLink = async () => {
-    try {
-      const resp = await generateShareLink(documentId);
-      const link = resp.link || resp?.data?.link || '';
-      setShareLink(link);
-      setLinkCopied(false);
-    } catch (err) {
-      console.error('Generate link failed', err);
-    }
+  const closeShareModal = () => {
+    setIsShareModalOpen(false);
+    setCopyMessage('');
+    setShareMessage('');
   };
 
   const handleCopyLink = async () => {
-    if (!shareLink) return;
     try {
-      await navigator.clipboard.writeText(shareLink);
-      setLinkCopied(true);
-      setTimeout(() => setLinkCopied(false), 2500);
-    } catch (err) { console.error('copy failed', err); }
+      await navigator.clipboard.writeText(window.location.href);
+      setCopyMessage('Link copied');
+      setTimeout(() => setCopyMessage(''), 2500);
+    } catch {
+      setCopyMessage('Unable to copy link');
+    }
   };
 
-  const handleRemoveCollaborator = async (email) => {
+  const handleAddCollaborator = async (event) => {
+    event?.preventDefault();
+    const email = collaboratorEmail.trim();
+
+    if (!email) {
+      setShareMessage('Enter an email address.');
+      return;
+    }
+
     try {
-      await removeCollaborator(documentId, email);
-      const data = await getCollaborators(documentId);
-      setCollaboratorsList(data.collaborators || []);
+      setShareLoading(true);
+      setShareMessage('');
+      const response = await addCollaborator(documentId, email);
+      setShareMessage(response.message || 'Collaborator added');
+      setCollaboratorEmail('');
     } catch (err) {
-      console.error('Remove collaborator failed', err);
+      setShareMessage(err?.response?.data?.message || err?.response?.data?.error || 'Could not add collaborator');
+    } finally {
+      setShareLoading(false);
     }
   };
 
@@ -643,92 +806,148 @@ const EditorPage = () => {
                 </span>
                 {isSaving ? 'Saving...' : (isSocketConnected ? 'Saved' : 'Working Offline')}
               </span>
+              {typingUser && <span className="text-indigo-500">{typingUser}</span>}
             </div>
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
-          {/* Share Input Group */}
-          <div className="flex items-center gap-2">
-            <button onClick={openShareModal} className="bg-white border border-slate-200 px-3 py-2 rounded-lg text-sm hover:bg-slate-50">Share</button>
-          </div>
-          
-          <div className="h-8 w-px bg-slate-200 mx-1"></div>
-          
-          {/* Avatar Profile */}
-          <div className="flex items-center gap-2 cursor-pointer hover:bg-slate-100 p-1.5 rounded-lg transition-colors">
-            <div className="w-9 h-9 rounded-full bg-indigo-500 text-white flex items-center justify-center text-sm font-bold shadow-md ring-2 ring-white" title={user?.username || 'You'}>
-              {(user?.username || 'U').charAt(0).toUpperCase()}
-            </div>
-          </div>
-        </div>
-      </header>
-      
-      {/* Messages Toast */}
-      <div className={`absolute top-20 left-1/2 -translate-x-1/2 z-50 transition-all duration-300 transform ${shareMessage ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4 pointer-events-none'}`}>
-        <div className="bg-slate-800 text-white px-5 py-2.5 rounded-full shadow-lg text-sm font-medium flex items-center gap-3">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-emerald-400"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
-          <span>{shareMessage}</span>
-          <button onClick={() => setShareMessage('')} className="text-slate-400 hover:text-white ml-1 transition-colors">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+        <div className="flex items-center">
+          <button
+            onClick={openShareModal}
+            className="inline-flex items-center justify-center rounded-full bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+          >
+            Share
           </button>
         </div>
-      </div>
+      </header>
 
       {/* Editor Main Area */}
       <main className="flex-1 flex flex-col relative bg-slate-50/30">
-        <CustomToolbar onUndo={onUndo} onRedo={onRedo} onSave={onSave} formatOpen={formatOpen} setFormatOpen={setFormatOpen} dialogFont={dialogFont} setDialogFont={setDialogFont} dialogSize={dialogSize} setDialogSize={setDialogSize} dialogColor={dialogColor} setDialogColor={setDialogColor} onApplyFormat={applyFormatting} onCancelFormat={() => setFormatOpen(false)} />
+        <CustomToolbar onUndo={onUndo} onRedo={onRedo} onSave={onSave} formatOpen={formatOpen} setFormatOpen={setFormatOpen} onCaptureFormatRange={captureFormatRange} dialogFont={dialogFont} setDialogFont={setDialogFont} dialogSize={dialogSize} setDialogSize={setDialogSize} dialogColor={dialogColor} setDialogColor={setDialogColor} onApplyFormat={applyFormatting} onCancelFormat={() => setFormatOpen(false)} />
         
         <div className="flex-1 overflow-y-auto w-full flex justify-center pb-24 pt-8 custom-scrollbar">
-          <ReactQuill ref={quillRef} theme="snow" className="w-full max-w-4xl shadow-sm rounded-xl overflow-hidden bg-white min-h-screen" modules={modules} formats={formats} placeholder="Start typing your document..." />
+          {documentError ? (
+            <div className="mt-20 w-full max-w-md rounded-lg border border-rose-200 bg-white p-6 text-center shadow-sm">
+              <h2 className="text-base font-semibold text-slate-900">Unable to open document</h2>
+              <p className="mt-2 text-sm text-slate-600">{documentError}</p>
+              <button
+                onClick={() => navigate('/dashboard')}
+                className="mt-5 rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-slate-700"
+              >
+                Back to dashboard
+              </button>
+            </div>
+          ) : (
+            <ReactQuill ref={quillRef} theme="snow" className="w-full max-w-4xl shadow-sm rounded-xl overflow-hidden bg-white min-h-screen" modules={modules} formats={formats} placeholder="Start typing your document..." />
+          )}
         </div>
       </main>
 
-      {/* Share Modal */}
-      {shareModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold">Share Document</h3>
-              <button onClick={closeShareModal} className="text-slate-500 hover:text-slate-800">Close</button>
-            </div>
-
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-slate-700 mb-2">Invite via email</label>
-              <div className="flex gap-2">
-                <input type="email" value={shareEmail} onChange={e => setShareEmail(e.target.value)} placeholder="email@example.com" className="flex-1 border rounded px-3 py-2" />
-                <button onClick={handleShareDocument} className="bg-indigo-600 text-white px-4 py-2 rounded">Invite</button>
+      {isShareModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/35 px-4 py-6 backdrop-blur-sm"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeShareModal();
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="share-dialog-title"
+            className="w-full max-w-xl overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-slate-900/10"
+          >
+            <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-5">
+              <div>
+                <h2 id="share-dialog-title" className="text-lg font-semibold text-slate-900">
+                  Share "{documentTitle || 'Untitled Document'}"
+                </h2>
+                <p className="mt-1 text-sm text-slate-500">Invite collaborators or copy the document link.</p>
               </div>
+              <button
+                onClick={closeShareModal}
+                className="rounded-full p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+                aria-label="Close share dialog"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              </button>
             </div>
 
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-slate-700 mb-2">Or generate a shareable link</label>
-              <div className="flex gap-2 items-center">
-                <button onClick={handleGenerateLink} className="bg-white border px-3 py-2 rounded">Generate Link</button>
-                {shareLink && (
-                  <div className="flex gap-2 items-center">
-                    <input readOnly value={shareLink} className="border rounded px-2 py-2 w-80" />
-                    <button onClick={handleCopyLink} className={`px-3 py-2 rounded ${linkCopied ? 'bg-emerald-600 text-white' : 'bg-indigo-600 text-white'}`}>{linkCopied ? 'Copied' : 'Copy'}</button>
+            <div className="space-y-6 px-6 py-5">
+              <section>
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <h3 className="text-sm font-semibold text-slate-800">Copy Link</h3>
+                  {copyMessage && <span className="text-xs font-medium text-emerald-600">{copyMessage}</span>}
+                </div>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <input
+                    readOnly
+                    value={typeof window !== 'undefined' ? window.location.href : ''}
+                    className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600 outline-none"
+                  />
+                  <button
+                    onClick={handleCopyLink}
+                    className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+                  >
+                    Copy Link
+                  </button>
+                </div>
+              </section>
+
+              <section>
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <h3 className="text-sm font-semibold text-slate-800">Add Collaborator</h3>
+                  {shareMessage && <span className="text-xs font-medium text-slate-500">{shareMessage}</span>}
+                </div>
+                <form className="flex flex-col gap-2 sm:flex-row" onSubmit={handleAddCollaborator}>
+                  <input
+                    type="email"
+                    value={collaboratorEmail}
+                    onChange={(event) => setCollaboratorEmail(event.target.value)}
+                    placeholder="email@example.com"
+                    className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                  />
+                  <button
+                    type="submit"
+                    disabled={shareLoading}
+                    className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {shareLoading ? 'Adding...' : 'Add Collaborator'}
+                  </button>
+                </form>
+              </section>
+
+              <section>
+                <h3 className="mb-3 text-sm font-semibold text-slate-800">Active collaborators</h3>
+                {activeUsers.length > 0 ? (
+                  <div className="flex flex-wrap gap-2">
+                    {activeUsers.map((activeUser, index) => {
+                      const name = getActiveUserName(activeUser);
+                      return (
+                        <span
+                          key={activeUser?._id || activeUser?.id || activeUser?.socketId || `${name}-${index}`}
+                          className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 ring-1 ring-emerald-100"
+                        >
+                          <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                          {name}
+                        </span>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-500">
+                    No active collaborators
                   </div>
                 )}
-              </div>
+              </section>
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-slate-700 mb-2">Collaborators</label>
-              <div className="space-y-2 max-h-48 overflow-y-auto">
-                {collaboratorsList.length === 0 ? <div className="text-sm text-slate-500">No collaborators</div> : collaboratorsList.map((c) => (
-                  <div key={c._id || c.email} className="flex items-center justify-between border rounded px-3 py-2">
-                    <div>
-                      <div className="text-sm font-medium">{c.username || c.email}</div>
-                      <div className="text-xs text-slate-500">{c.email}</div>
-                    </div>
-                    <div>
-                      <button onClick={() => handleRemoveCollaborator(c.email)} className="text-red-600 text-sm">Remove</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
+            <div className="flex justify-end border-t border-slate-100 bg-slate-50 px-6 py-4">
+              <button
+                onClick={closeShareModal}
+                className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-slate-700"
+              >
+                Close
+              </button>
             </div>
           </div>
         </div>
