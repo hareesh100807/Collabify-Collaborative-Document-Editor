@@ -14,6 +14,9 @@ export const googleAuth = async (req, res) => {
     if (!googleClientId) {
       return res.status(500).json({ error: 'Google sign-in is not configured on the server' });
     }
+    if (!process.env.JWT_SECRET) {
+      return res.status(500).json({ error: 'JWT secret is not configured on the server' });
+    }
 
     if (credential) {
       const ticket = await client.verifyIdToken({
@@ -58,9 +61,10 @@ export const googleAuth = async (req, res) => {
       });
       await user.save();
     } else {
-      const hasGoogle = user.providers.some(p => p.name === 'google');
+      const providers = Array.isArray(user.providers) ? user.providers : [];
+      const hasGoogle = providers.some(p => p.name === 'google');
       if (!hasGoogle) {
-        user.providers.push({ name: 'google', providerId: sub });
+        user.providers = [...providers, { name: 'google', providerId: sub }];
         if (!user.profilePic) user.profilePic = picture;
         await user.save();
       }
@@ -85,6 +89,10 @@ export const googleAuth = async (req, res) => {
 
   } catch (error) {
     console.error('Error in Google Auth:', error);
+    const message = error?.message || '';
+    if (message.includes('Wrong recipient') || message.includes('audience')) {
+      return res.status(401).json({ error: 'Google client ID mismatch between frontend and backend' });
+    }
     res.status(500).json({ error: 'Google Authentication Failed' });
   }
 };
