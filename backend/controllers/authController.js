@@ -3,17 +3,22 @@ import bcrypt from 'bcrypt';
 import UserModel from '../models/UserModel.js';
 import { OAuth2Client } from 'google-auth-library';
 
-const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+const googleClientId = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID;
+const client = new OAuth2Client(googleClientId);
 
 export const googleAuth = async (req, res) => {
   try {
     const { credential, access_token } = req.body;
     let payload;
 
+    if (!googleClientId) {
+      return res.status(500).json({ error: 'Google sign-in is not configured on the server' });
+    }
+
     if (credential) {
       const ticket = await client.verifyIdToken({
         idToken: credential,
-        audience: process.env.GOOGLE_CLIENT_ID,
+        audience: googleClientId,
       });
       payload = ticket.getPayload();
     } else if (access_token) {
@@ -29,6 +34,9 @@ export const googleAuth = async (req, res) => {
     }
 
     const { email, name, picture, sub } = payload;
+    if (!email || !sub) {
+      return res.status(400).json({ error: 'Invalid Google profile response' });
+    }
 
     let user = await UserModel.findOne({ email });
 
