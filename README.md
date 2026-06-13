@@ -197,7 +197,6 @@ Colloborative_Document_Editor/
 │   ├── index.html
 │   ├── tailwind.config.cjs
 │   └── vite.config.js
-├── reports/
 ├── package.json
 └── README.md
 ```
