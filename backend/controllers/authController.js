@@ -6,6 +6,31 @@ import { OAuth2Client } from 'google-auth-library';
 const googleClientId = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID;
 const client = new OAuth2Client(googleClientId);
 
+const normalizeUsernameSeed = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "")
+    .slice(0, 24);
+
+const createUniqueUsername = async ({ name, email }) => {
+  const emailName = email?.split("@")[0];
+  const baseUsername =
+    normalizeUsernameSeed(name) ||
+    normalizeUsernameSeed(emailName) ||
+    `user${Date.now()}`;
+
+  let uniqueUsername = baseUsername;
+  let counter = 1;
+
+  while (await UserModel.findOne({ username: uniqueUsername })) {
+    uniqueUsername = `${baseUsername}${counter}`;
+    counter++;
+  }
+
+  return uniqueUsername;
+};
+
 export const googleAuth = async (req, res) => {
   try {
     const { credential, access_token } = req.body;
@@ -44,14 +69,7 @@ export const googleAuth = async (req, res) => {
     let user = await UserModel.findOne({ email });
 
     if (!user) {
-      let baseUsername = (name || email.split("@")[0]).replace(/\s+/g, "").toLowerCase();
-      let uniqueUsername = baseUsername;
-      let counter = 1;
-      
-      while (await UserModel.findOne({ username: uniqueUsername })) {
-        uniqueUsername = `${baseUsername}${counter}`;
-        counter++;
-      }
+      const uniqueUsername = await createUniqueUsername({ name, email });
       user = new UserModel({
         username: uniqueUsername,
         email,
@@ -66,8 +84,11 @@ export const googleAuth = async (req, res) => {
       if (!hasGoogle) {
         user.providers = [...providers, { name: 'google', providerId: sub }];
         if (!user.profilePic) user.profilePic = picture;
-        await user.save();
       }
+      if (!user.username) {
+        user.username = await createUniqueUsername({ name, email });
+      }
+      await user.save();
     }
     const token = jwt.sign({ userId: user._id },process.env.JWT_SECRET,{ expiresIn: '7d' });
 
