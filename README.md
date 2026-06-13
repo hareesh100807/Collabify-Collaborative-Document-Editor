@@ -106,15 +106,14 @@ Collabify is a Google Docs-style collaborative editor built with React, Vite, Ta
 | Dashboard | `screenshots/dashboard.png` |
 | Editor | `screenshots/editor.png` |
 | Share modal | `screenshots/share-modal.png` |
-| Toolbar | `screenshots/toolbar.png` |
+
 
 ```text
 screenshots/
 ├── login-page.png
 ├── dashboard.png
 ├── editor.png
-├── share-modal.png
-└── toolbar.png
+└── share-modal.png
 ```
 
 ---
