@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer';
+import { getFrontendBaseUrl } from './frontendUrl.js';
 
 const createTransporter = () => {
     return nodemailer.createTransport({
@@ -24,7 +25,7 @@ export const sendShareNotification = async (toEmail, ownerName, documentTitle, i
             <h2>${ownerName} has invited you to collaborate!</h2>
             <p>You have been invited to edit the document: <strong>${documentTitle}</strong></p>
             <p>Log in to your dashboard to accept the invitation and start collaborating.</p>
-            <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/dashboard" style="display: inline-block; padding: 10px 20px; background-color: #3b82f6; color: white; text-decoration: none; border-radius: 5px;">Go to Dashboard</a>
+            <a href="${getFrontendBaseUrl()}/dashboard" style="display: inline-block; padding: 10px 20px; background-color: #3b82f6; color: white; text-decoration: none; border-radius: 5px;">Go to Dashboard</a>
         `,
     };
 

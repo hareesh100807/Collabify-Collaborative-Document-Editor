@@ -1,5 +1,6 @@
 import Document from '../models/DocumentModel.js';
 import User from '../models/UserModel.js';
+import ShareRequest from '../models/ShareRequestModel.js';
 
 export const createDocument = async (req, res) => {
     try {
@@ -182,7 +183,22 @@ export const getDocumentCollaborators = async (req, res) => {
         if (!isOwner && !isCollaborator) {
             return res.status(403).json({ error: 'Access denied' });
         }
-        res.status(200).json({ collaborators: document.collaborators });
+        const pendingRequests = await ShareRequest.find({
+            document: documentId,
+            status: 'pending'
+        }).populate('toUser', 'username email');
+
+        const pendingCollaborators = pendingRequests.map((request) => ({
+            _id: request._id,
+            email: request.toUser?.email || request.toEmail,
+            username: request.toUser?.username || '',
+            status: request.status,
+        }));
+
+        res.status(200).json({
+            collaborators: document.collaborators,
+            pendingCollaborators,
+        });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }

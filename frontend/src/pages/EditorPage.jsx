@@ -1012,6 +1012,7 @@ const EditorPage = () => {
   const [shareLoading, setShareLoading] = useState(false);
   const [copyMessage, setCopyMessage] = useState("");
   const [collaboratorsList, setCollaboratorsList] = useState([]);
+  const [pendingCollaboratorsList, setPendingCollaboratorsList] = useState([]);
 
   const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
   const [linkText, setLinkText] = useState("");
@@ -1597,6 +1598,7 @@ const EditorPage = () => {
     try {
       const data = await getCollaborators(documentId);
       setCollaboratorsList(data.collaborators || []);
+      setPendingCollaboratorsList(data.pendingCollaborators || []);
     } catch (error) {
       console.error("Failed to load collaborators:", error);
     }
@@ -1633,6 +1635,7 @@ const EditorPage = () => {
       setCollaboratorEmail("");
       const data = await getCollaborators(documentId);
       setCollaboratorsList(data.collaborators || []);
+      setPendingCollaboratorsList(data.pendingCollaborators || []);
     } catch (error) {
       setShareMessage(error.response?.data?.message || "Unable to add collaborator.");
     } finally {
@@ -2074,6 +2077,25 @@ const EditorPage = () => {
                       <div key={collaborator._id || collaborator.email} className="rounded-lg border border-slate-200 px-3 py-2">
                         <p className="text-sm font-medium text-slate-800">{collaborator.username || collaborator.email}</p>
                         <p className="text-xs text-slate-500">{collaborator.email}</p>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {pendingCollaboratorsList.length > 0 && (
+                <section>
+                  <h3 className="mb-2 text-sm font-medium text-slate-700">Pending invitations</h3>
+                  <div className="max-h-32 space-y-2 overflow-y-auto">
+                    {pendingCollaboratorsList.map((collaborator) => (
+                      <div key={collaborator._id || collaborator.email} className="flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-amber-950">{collaborator.username || collaborator.email}</p>
+                          {collaborator.username && <p className="truncate text-xs text-amber-800">{collaborator.email}</p>}
+                        </div>
+                        <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[11px] font-bold text-amber-700 ring-1 ring-amber-200">
+                          Pending
+                        </span>
                       </div>
                     ))}
                   </div>

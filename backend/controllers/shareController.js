@@ -3,6 +3,7 @@ import Document from "../models/DocumentModel.js";
 import User from "../models/UserModel.js";
 import ShareRequest from "../models/ShareRequestModel.js";
 import { sendShareNotification, sendInviteToUnregistered, sendRejectionNotification } from "../utils/emailService.js";
+import { getFrontendBaseUrl } from "../utils/frontendUrl.js";
 
 const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
 
@@ -137,7 +138,7 @@ export const addCollaborator = async (req, res) => {
             });
 
             // Send email
-            const registerLink = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/register?next=/documents/${documentId}`;
+            const registerLink = `${getFrontendBaseUrl()}/register?next=/documents/${documentId}`;
             await sendEmailWithoutBlockingInvite(() => sendInviteToUnregistered(email, document.owner.username, document.title, registerLink));
 
             return res.status(200).json({ message: "Invitation sent! They'll get access when they register." });
@@ -299,7 +300,7 @@ export const generateShareLink = async (req, res) => {
             shareToken
         });
         
-        const link = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/invite/${shareToken}`;
+        const link = `${getFrontendBaseUrl()}/invite/${shareToken}`;
         res.status(200).json({ link });
     } catch (error) {
         console.error("Generate share link error:", error);
