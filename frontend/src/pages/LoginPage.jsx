@@ -85,9 +85,7 @@ const LoginPage = () => {
             <h1 className="mt-6 max-w-xl text-4xl font-bold tracking-tight text-slate-950">
               Pick up your documents exactly where collaboration happens.
             </h1>
-            <p className="mt-4 max-w-lg text-base leading-7 text-slate-600">
-              Sign in to open your workspace, manage invitations, and continue editing with a clean Google Docs-style editor.
-            </p>
+            
           </div>
 
           <form onSubmit={handleLogin} className="rounded-2xl border border-white/80 bg-white/90 p-6 shadow-xl shadow-indigo-950/10 backdrop-blur sm:p-8">
