@@ -34,7 +34,7 @@ export const googleAuth = async (req, res) => {
     let user = await UserModel.findOne({ email });
 
     if (!user) {
-      let baseUsername = name.replace(/\s+/g, '').toLowerCase();
+      let baseUsername = (name || email.split("@")[0]).replace(/\s+/g, "").toLowerCase();
       let uniqueUsername = baseUsername;
       let counter = 1;
       
@@ -45,6 +45,7 @@ export const googleAuth = async (req, res) => {
       user = new UserModel({
         username: uniqueUsername,
         email,
+        password: null,
         profilePic: picture,
         providers: [{ name: 'google', providerId: sub }]
       });
