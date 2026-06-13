@@ -1,37 +1,37 @@
-import { Routes,Route,Navigate } from "react-router-dom";
-import LoginPage from "./pages/LoginPage";
+import { Navigate, Route, Routes } from "react-router-dom";
+import { useAuth } from "./context/AuthContext";
 import DashboardPage from "./pages/DashboardPage";
-import RegisterPage from "./pages/RegisterPage";
 import EditorPage from "./pages/EditorPage";
 import InvitePage from "./pages/InvitePage";
-import { useAuth } from "./context/AuthContext";
-function App() {
+import LoginPage from "./pages/LoginPage";
+import RegisterPage from "./pages/RegisterPage";
+
+const App = () => {
   const { user, loading } = useAuth();
 
   if (loading) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-slate-950 text-white font-sans">
+      <div className="flex min-h-screen flex-col items-center justify-center bg-slate-950 text-white">
         <div className="relative flex items-center justify-center">
-          <div className="w-16 h-16 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin"></div>
-          <div className="absolute w-10 h-10 border-4 border-emerald-500/20 border-b-emerald-500 rounded-full animate-spin [animation-direction:reverse]"></div>
+          <div className="h-16 w-16 animate-spin rounded-full border-4 border-indigo-500/20 border-t-indigo-500" />
+          <div className="absolute h-10 w-10 animate-spin rounded-full border-4 border-purple-500/20 border-b-purple-500 [animation-direction:reverse]" />
         </div>
-        <p className="mt-6 text-xs font-semibold tracking-widest text-indigo-400 uppercase animate-pulse">
-          Loading Workspace...
-        </p>
+        <p className="mt-6 text-xs font-semibold uppercase tracking-[0.3em] text-indigo-300">Loading workspace</p>
       </div>
     );
   }
 
   return (
     <Routes>
-      <Route path="/" element={<Navigate to={user ? "/dashboard" : "/login"} />} />
-      <Route path="/login" element={user ? <Navigate to="/dashboard" /> : <LoginPage />} />
-      <Route path="/register" element={user ? <Navigate to="/dashboard" /> : <RegisterPage />} />
-      <Route path="/dashboard" element={user ? <DashboardPage /> : <Navigate to="/login" />} />
-       <Route path="/documents/:id" element={user ? <EditorPage /> : <Navigate to="/login" />} />
-       <Route path="/invite/:token" element={<InvitePage />} />
-       <Route path="*" element={<Navigate to="/" />} />
+      <Route path="/" element={<Navigate to={user ? "/dashboard" : "/login"} replace />} />
+      <Route path="/login" element={user ? <Navigate to="/dashboard" replace /> : <LoginPage />} />
+      <Route path="/register" element={user ? <Navigate to="/dashboard" replace /> : <RegisterPage />} />
+      <Route path="/dashboard" element={user ? <DashboardPage /> : <Navigate to="/login" replace />} />
+      <Route path="/documents/:id" element={user ? <EditorPage /> : <Navigate to="/login" replace />} />
+      <Route path="/invite/:token" element={<InvitePage />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
-}
+};
+
 export default App;

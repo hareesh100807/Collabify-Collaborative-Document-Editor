@@ -12,10 +12,6 @@ const DocumentSchema = new Schema({
         type: Schema.Types.Mixed,
         default: '',
     },
-    yjsState: {
-        type: Buffer,
-        default: null,
-    },
     owner: {
         type: Schema.Types.ObjectId,
         ref: 'User',

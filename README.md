@@ -4,20 +4,18 @@
 [![React](https://img.shields.io/badge/React-19.0-blue.svg)](https://reactjs.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-LTS-green.svg)](https://nodejs.org/)
 [![Socket.io](https://img.shields.io/badge/Socket.io-4.8-orange.svg)](https://socket.io/)
-[![Yjs](https://img.shields.io/badge/Yjs-CRDT-red.svg)](https://yjs.dev/)
 
-A powerful, real-time collaborative document editing platform that allows multiple users to write together seamlessly. Inspired by Google Docs, this project leverages **CRDTs (Conflict-free Replicated Data Types)** to ensure high-performance, lag-free teamwork with automatic conflict resolution.
+A powerful, real-time collaborative document editing platform that allows multiple users to write together seamlessly. Inspired by Google Docs, this project uses **Socket.IO rooms and Quill deltas** for fast live collaboration with autosave and document persistence.
 
 ---
 
 ## ⚡ Key Features
 
-- 🤝 **Real-time Collaboration**: Multi-user editing with live cursor updates and instant synchronization powered by **Socket.io** and **Yjs**.
-- ✍️ **Rich Text Editing**: Full-featured editor supporting formatting, lists, links, and more (using **ReactQuill** and **Tiptap**).
+- 🤝 **Real-time Collaboration**: Multi-user editing with active users, typing indicators, and instant synchronization powered by **Socket.IO**.
+- ✍️ **Rich Text Editing**: Full-featured editor supporting formatting, lists, links, media, shapes, text boxes, and more using **react-quill-new**.
 - 🔐 **Secure Authentication**: 
   - Email/Password login with **JWT** & **bcrypt**.
   - One-click **Google OAuth** integration.
-  - One-click **GitHub OAuth** integration.
 - 📂 **Document Management**:
   - Personal dashboard to manage all your documents.
   - Create, rename, and delete functionality.
@@ -34,7 +32,7 @@ A powerful, real-time collaborative document editing platform that allows multip
 - **Framework**: React 19 (Vite)
 - **Styling**: Tailwind CSS
 - **State Management**: React Context API
-- **Collaboration**: Yjs, y-quill, socket.io-client
+- **Collaboration**: socket.io-client with Quill Delta synchronization
 - **HTTP Client**: Axios
 
 ### Backend
@@ -42,8 +40,8 @@ A powerful, real-time collaborative document editing platform that allows multip
 - **Framework**: Express.js
 - **Database**: MongoDB (Mongoose)
 - **Real-time Engine**: Socket.io
-- **Conflict Resolution**: Yjs (Server-side document management)
-- **Authentication**: Passport.js / JWT / Google Auth Library
+- **Collaboration Sync**: Socket.IO document rooms and server-side access checks
+- **Authentication**: JWT cookies, bcrypt, and Google Auth Library
 
 ---
 

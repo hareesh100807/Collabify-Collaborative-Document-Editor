@@ -1,1287 +1,2134 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  AlignCenter,
+  AlignJustify,
+  AlignLeft,
+  AlignRight,
+  Bold,
+  Eraser,
+  History,
+  Image as ImageIcon,
+  Italic,
+  Link as LinkIcon,
+  List,
+  ListOrdered,
+  PaintBucket,
+  Redo2,
+  Save,
+  Shapes,
+  Strikethrough,
+  Type,
+  TextCursorInput,
+  Underline,
+  Undo2,
+  Video as VideoIcon,
+} from "lucide-react";
 import ReactQuill from "react-quill-new";
 import "react-quill-new/dist/quill.snow.css";
 import { useNavigate, useParams } from "react-router-dom";
 import { io } from "socket.io-client";
 import { useAuth } from "../context/AuthContext";
-import { addCollaborator, renameDocument } from "../api/documentService.js";
+import { addCollaborator, getCollaborators, getVersions, renameDocument, restoreVersion } from "../api/documentService.js";
 import axiosInstance from "../api/axios.js";
 
+const Quill = ReactQuill.Quill;
+const BlockEmbed = Quill.import("blots/block/embed");
+
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:4000";
+const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
+const MAX_VIDEO_SIZE = 25 * 1024 * 1024;
+
 const FONT_OPTIONS = [
-  { label: "Default Font", value: "" },
-  { label: "Sans Serif", value: "sans-serif" },
-  { label: "Serif", value: "serif" },
-  { label: "Monospace", value: "monospace" },
-  { label: "Inter", value: "Inter, sans-serif" },
-  { label: "Roboto", value: "Roboto, Arial, sans-serif" },
-  { label: "Arial", value: "Arial, Helvetica, sans-serif" },
-  { label: "Georgia", value: "Georgia, serif" },
-  { label: "Times New Roman", value: "Times New Roman, Times, serif" },
-  { label: "Courier New", value: "Courier New, Courier, monospace" },
-  { label: "Comic Sans", value: "Comic Sans MS, Comic Sans, cursive" },
-  { label: "Trebuchet MS", value: "Trebuchet MS, sans-serif" },
-  { label: "Verdana", value: "Verdana, Geneva, sans-serif" },
+  { value: "", label: "Default" },
+  { value: "sans-serif", label: "Sans Serif" },
+  { value: "serif", label: "Serif" },
+  { value: "monospace", label: "Monospace" },
+  { value: "inter", label: "Inter" },
+  { value: "roboto", label: "Roboto" },
+  { value: "arial", label: "Arial" },
+  { value: "georgia", label: "Georgia" },
+  { value: "times-new-roman", label: "Times New Roman" },
+  { value: "courier-new", label: "Courier New" },
+  { value: "verdana", label: "Verdana" },
 ];
 
-const LEGACY_FONT_VALUE_ALIASES = {
-  inter: "Inter, sans-serif",
-  roboto: "Roboto, Arial, sans-serif",
-  arial: "Arial, Helvetica, sans-serif",
-  georgia: "Georgia, serif",
-  "times-new-roman": "Times New Roman, Times, serif",
-  "courier-new": "Courier New, Courier, monospace",
-  "comic-sans": "Comic Sans MS, Comic Sans, cursive",
-  "trebuchet-ms": "Trebuchet MS, sans-serif",
-  verdana: "Verdana, Geneva, sans-serif",
+const SIZE_OPTIONS = ["10px", "12px", "14px", "16px", "18px", "20px", "24px", "28px", "36px", "48px", "72px"];
+
+const SHAPE_OPTIONS = [
+  { value: "rectangle", label: "Rectangle" },
+  { value: "rounded-rectangle", label: "Rounded rectangle" },
+  { value: "circle", label: "Circle" },
+  { value: "oval", label: "Oval" },
+  { value: "triangle", label: "Triangle" },
+  { value: "right-triangle", label: "Right triangle" },
+  { value: "diamond", label: "Diamond" },
+  { value: "line", label: "Line" },
+  { value: "arrow", label: "Arrow" },
+  { value: "double-arrow", label: "Double arrow" },
+  { value: "star", label: "Star" },
+  { value: "heart", label: "Heart" },
+  { value: "pentagon", label: "Pentagon" },
+  { value: "hexagon", label: "Hexagon" },
+  { value: "speech-bubble", label: "Speech bubble" },
+  { value: "cloud", label: "Cloud" },
+  { value: "check", label: "Check mark" },
+  { value: "cross", label: "Cross mark" },
+];
+
+const RESIZE_HANDLES = ["nw", "n", "ne", "e", "se", "s", "sw", "w"];
+
+const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+
+const TEXT_BOX_DEFAULTS = {
+  html: "Type here...",
+  left: 96,
+  top: 96,
+  width: 260,
+  height: 130,
 };
 
-const normalizeFontValue = (value) => (
-  typeof value === "string" ? LEGACY_FONT_VALUE_ALIASES[value] || value : value
-);
+const normalizeObjectValue = (value, fallback = {}) => {
+  if (typeof value === "string") {
+    return { ...fallback, src: value };
+  }
 
-const SIZE_OPTIONS = [
-  { label: "Default Size", value: "" },
-  ...["10px", "12px", "14px", "16px", "18px", "20px", "24px", "28px", "36px", "48px", "72px"].map((size) => ({
-    label: size,
-    value: size,
-  })),
-];
+  return { ...fallback, ...(value || {}) };
+};
 
-// Quill Font Registration (style attributor)
-const Font = ReactQuill.Quill.import("attributors/style/font");
-const baseFontAdd = Font.add.bind(Font);
-Font.add = (node, value) => baseFontAdd(node, normalizeFontValue(value));
-Font.whitelist = [
-  ...new Set([
-    ...FONT_OPTIONS.map(({ value }) => value).filter(Boolean),
-    ...Object.keys(LEGACY_FONT_VALUE_ALIASES),
-  ]),
-];
-ReactQuill.Quill.register(Font, true);
+const normalizeTextBoxValue = (value) => {
+  if (typeof value === "string") {
+    return { ...TEXT_BOX_DEFAULTS, html: value };
+  }
 
-// Quill Size Registration
-const Size = ReactQuill.Quill.import("attributors/style/size");
-Size.whitelist = SIZE_OPTIONS.map(({ value }) => value).filter(Boolean);
-ReactQuill.Quill.register(Size, true);
+  return { ...TEXT_BOX_DEFAULTS, ...(value || {}) };
+};
 
-// --- Custom Shape and Image Blots ---
-const BlockEmbed = ReactQuill.Quill.import('blots/block/embed');
+const emitEditorObjectChange = () => {
+  window.dispatchEvent(new CustomEvent("editor-object-change"));
+};
+
+const createResizeHandle = (position) => {
+  const handle = document.createElement("span");
+  handle.className = `ql-resize-handle ql-resize-${position}`;
+  handle.dataset.resizeHandle = position;
+  handle.setAttribute("contenteditable", "false");
+  return handle;
+};
+
+const positionResizeHandles = (node) => {
+  const width = Number(node.dataset.width || 220);
+  const height = Number(node.dataset.height || 140);
+  const positions = {
+    nw: [0, 0],
+    n: [width / 2, 0],
+    ne: [width, 0],
+    e: [width, height / 2],
+    se: [width, height],
+    s: [width / 2, height],
+    sw: [0, height],
+    w: [0, height / 2],
+  };
+
+  node.querySelectorAll("[data-resize-handle]").forEach((handle) => {
+    const [left, top] = positions[handle.dataset.resizeHandle];
+    handle.style.left = `${left}px`;
+    handle.style.top = `${top}px`;
+  });
+};
+
+const setObjectBox = (node, target, width, height, updateTarget) => {
+  const nextWidth = Math.round(clamp(width, 40, 760));
+  const nextHeight = Math.round(clamp(height, 24, 760));
+
+  node.dataset.width = String(nextWidth);
+  node.dataset.height = String(nextHeight);
+  node.style.width = `${nextWidth}px`;
+  node.style.height = `${nextHeight}px`;
+
+  if (target) {
+    target.style.width = `${nextWidth}px`;
+    target.style.height = `${nextHeight}px`;
+  }
+
+  updateTarget?.(nextWidth, nextHeight);
+  positionResizeHandles(node);
+};
+
+const attachObjectControls = (node, target, updateTarget) => {
+  if (node.dataset.decorated === "true") return;
+  node.dataset.decorated = "true";
+  node.classList.add("ql-editor-object");
+  node.setAttribute("contenteditable", "false");
+  node.style.position = "relative";
+  node.style.display = "inline-block";
+  node.style.verticalAlign = "middle";
+  node.style.userSelect = "none";
+  node.style.transform = `translate(${Number(node.dataset.x || 0)}px, ${Number(node.dataset.y || 0)}px)`;
+
+  RESIZE_HANDLES.forEach((position) => {
+    node.appendChild(createResizeHandle(position));
+  });
+
+  setObjectBox(node, target, Number(node.dataset.width || 220), Number(node.dataset.height || 140), updateTarget);
+
+  const selectNode = (event) => {
+    document.querySelectorAll(".ql-editor-object.is-selected").forEach((selected) => {
+      if (selected !== node) selected.classList.remove("is-selected");
+    });
+    node.classList.add("is-selected");
+    positionResizeHandles(node);
+    event?.stopPropagation();
+  };
+
+  node.addEventListener("click", selectNode);
+
+  node.querySelectorAll("[data-resize-handle]").forEach((handle) => {
+    handle.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      selectNode(event);
+
+      const startX = event.clientX;
+      const startY = event.clientY;
+      const startWidth = Number(node.dataset.width || 220);
+      const startHeight = Number(node.dataset.height || 140);
+      const position = handle.dataset.resizeHandle;
+
+      handle.setPointerCapture(event.pointerId);
+
+      const onMove = (moveEvent) => {
+        const dx = moveEvent.clientX - startX;
+        const dy = moveEvent.clientY - startY;
+        let nextWidth = startWidth;
+        let nextHeight = startHeight;
+
+        if (position.includes("e")) nextWidth = startWidth + dx;
+        if (position.includes("w")) nextWidth = startWidth - dx;
+        if (position.includes("s")) nextHeight = startHeight + dy;
+        if (position.includes("n")) nextHeight = startHeight - dy;
+
+        setObjectBox(node, target, nextWidth, nextHeight, updateTarget);
+        emitEditorObjectChange();
+      };
+
+      const onUp = (upEvent) => {
+        try {
+          handle.releasePointerCapture(upEvent.pointerId);
+        } catch {
+          // Pointer capture may already be released by the browser.
+        }
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onUp);
+        emitEditorObjectChange();
+      };
+
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onUp);
+    });
+  });
+
+  node.addEventListener("pointerdown", (event) => {
+    if (event.target?.dataset?.resizeHandle) return;
+    if (event.target?.tagName === "VIDEO") return;
+
+    selectNode(event);
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const originX = Number(node.dataset.x || 0);
+    const originY = Number(node.dataset.y || 0);
+
+    node.setPointerCapture(event.pointerId);
+
+    const onMove = (moveEvent) => {
+      const nextX = Math.round(originX + moveEvent.clientX - startX);
+      const nextY = Math.round(originY + moveEvent.clientY - startY);
+      node.dataset.x = String(nextX);
+      node.dataset.y = String(nextY);
+      node.style.transform = `translate(${nextX}px, ${nextY}px)`;
+      emitEditorObjectChange();
+    };
+
+    const onUp = (upEvent) => {
+      try {
+        node.releasePointerCapture(upEvent.pointerId);
+      } catch {
+        // Pointer capture may already be released by the browser.
+      }
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      emitEditorObjectChange();
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  });
+};
+
+const getNumberFromStyle = (node, key, fallback) => {
+  const value = Number(node.dataset[key] || Number.parseFloat(node.style[key]));
+  return Number.isFinite(value) ? value : fallback;
+};
+
+const setTextBoxPosition = (node, left, top) => {
+  const nextLeft = Math.round(left);
+  const nextTop = Math.round(top);
+  node.dataset.left = String(nextLeft);
+  node.dataset.top = String(nextTop);
+  node.style.left = `${nextLeft}px`;
+  node.style.top = `${nextTop}px`;
+};
+
+const setTextBoxBox = (node, width, height) => {
+  const nextWidth = Math.round(clamp(width, 120, 620));
+  const nextHeight = Math.round(clamp(height, 72, 520));
+  const editable = node.querySelector("[data-text-box-content]");
+
+  node.dataset.width = String(nextWidth);
+  node.dataset.height = String(nextHeight);
+  node.style.width = `${nextWidth}px`;
+  node.style.minHeight = `${nextHeight}px`;
+
+  if (editable) {
+    editable.style.minHeight = `${Math.max(nextHeight - 38, 42)}px`;
+  }
+
+  positionResizeHandles(node);
+};
+
+const styleTextBoxNode = (node) => {
+  node.classList.add("ql-editor-object", "ql-text-box-wrapper");
+  node.setAttribute("contenteditable", "false");
+  node.style.position = "absolute";
+  node.style.zIndex = "12";
+  node.style.boxSizing = "border-box";
+  node.style.border = "1px solid #818cf8";
+  node.style.borderRadius = "10px";
+  node.style.background = "#ffffff";
+  node.style.boxShadow = "none";
+  node.style.overflow = "visible";
+  node.style.userSelect = "none";
+};
+
+const styleTextBoxHandle = (handle) => {
+  handle.className = "ql-text-box-drag-handle";
+  handle.dataset.textBoxHandle = "true";
+  handle.setAttribute("contenteditable", "false");
+  handle.textContent = "";
+  handle.style.position = "absolute";
+  handle.style.top = "-6px";
+  handle.style.left = "0";
+  handle.style.right = "0";
+  handle.style.zIndex = "4";
+  handle.style.height = "12px";
+  handle.style.cursor = "move";
+  handle.style.display = "block";
+  handle.style.padding = "0";
+  handle.style.border = "0";
+  handle.style.borderRadius = "0";
+  handle.style.background = "transparent";
+  handle.style.color = "transparent";
+  handle.style.fontSize = "0";
+  handle.style.lineHeight = "0";
+};
+
+const styleTextBoxContent = (editable) => {
+  editable.className = "ql-text-box-content";
+  editable.dataset.textBoxContent = "true";
+  editable.setAttribute("contenteditable", "true");
+  editable.style.boxSizing = "border-box";
+  editable.style.width = "100%";
+  editable.style.padding = "10px 12px";
+  editable.style.color = "#0f172a";
+  editable.style.fontSize = "15px";
+  editable.style.lineHeight = "1.5";
+  editable.style.outline = "none";
+  editable.style.userSelect = "text";
+  editable.style.cursor = "text";
+  editable.style.whiteSpace = "pre-wrap";
+};
+
+const ensureTextBoxParts = (node) => {
+  let handle = node.querySelector("[data-text-box-handle]");
+  if (!handle) {
+    handle = document.createElement("div");
+    node.prepend(handle);
+  }
+  styleTextBoxHandle(handle);
+
+  let editable = node.querySelector("[data-text-box-content]");
+  if (!editable) {
+    editable = document.createElement("div");
+    editable.innerHTML = node.dataset.html || TEXT_BOX_DEFAULTS.html;
+    node.appendChild(editable);
+  }
+  styleTextBoxContent(editable);
+
+  return { handle, editable };
+};
+
+const attachTextBoxControls = (node) => {
+  if (node.dataset.decorated === "true") return;
+  node.dataset.decorated = "true";
+  styleTextBoxNode(node);
+
+  const { handle, editable } = ensureTextBoxParts(node);
+  const selectNode = (event) => {
+    document.querySelectorAll(".ql-editor-object.is-selected").forEach((selected) => {
+      if (selected !== node) selected.classList.remove("is-selected");
+    });
+    node.classList.add("is-selected");
+    positionResizeHandles(node);
+    event?.stopPropagation();
+  };
+
+  node.dataset.left ||= String(getNumberFromStyle(node, "left", TEXT_BOX_DEFAULTS.left));
+  node.dataset.top ||= String(getNumberFromStyle(node, "top", TEXT_BOX_DEFAULTS.top));
+  node.dataset.width ||= String(getNumberFromStyle(node, "width", TEXT_BOX_DEFAULTS.width));
+  node.dataset.height ||= String(getNumberFromStyle(node, "height", TEXT_BOX_DEFAULTS.height));
+
+  setTextBoxPosition(node, Number(node.dataset.left), Number(node.dataset.top));
+
+  if (!node.querySelector("[data-resize-handle]")) {
+    RESIZE_HANDLES.forEach((position) => {
+      node.appendChild(createResizeHandle(position));
+    });
+  }
+
+  setTextBoxBox(node, Number(node.dataset.width), Number(node.dataset.height));
+
+  handle.addEventListener("mousedown", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    selectNode(event);
+
+    const startX = event.clientX;
+    const startY = event.clientY;
+    const originLeft = Number(node.dataset.left || 0);
+    const originTop = Number(node.dataset.top || 0);
+
+    const onMove = (moveEvent) => {
+      setTextBoxPosition(node, originLeft + moveEvent.clientX - startX, originTop + moveEvent.clientY - startY);
+    };
+
+    const onUp = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      emitEditorObjectChange();
+    };
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
+
+  node.querySelectorAll("[data-resize-handle]").forEach((resizeHandle) => {
+    resizeHandle.addEventListener("mousedown", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      selectNode(event);
+
+      const startX = event.clientX;
+      const startY = event.clientY;
+      const startWidth = Number(node.dataset.width || TEXT_BOX_DEFAULTS.width);
+      const startHeight = Number(node.dataset.height || TEXT_BOX_DEFAULTS.height);
+      const startLeft = Number(node.dataset.left || 0);
+      const startTop = Number(node.dataset.top || 0);
+      const position = resizeHandle.dataset.resizeHandle;
+
+      const onMove = (moveEvent) => {
+        const dx = moveEvent.clientX - startX;
+        const dy = moveEvent.clientY - startY;
+        let nextWidth = startWidth;
+        let nextHeight = startHeight;
+        let nextLeft = startLeft;
+        let nextTop = startTop;
+
+        if (position.includes("e")) nextWidth = startWidth + dx;
+        if (position.includes("s")) nextHeight = startHeight + dy;
+        if (position.includes("w")) {
+          nextWidth = startWidth - dx;
+          nextLeft = startLeft + dx;
+        }
+        if (position.includes("n")) {
+          nextHeight = startHeight - dy;
+          nextTop = startTop + dy;
+        }
+
+        setTextBoxPosition(node, nextLeft, nextTop);
+        setTextBoxBox(node, nextWidth, nextHeight);
+      };
+
+      const onUp = () => {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        emitEditorObjectChange();
+      };
+
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
+  });
+
+  editable.addEventListener("mousedown", selectNode);
+  editable.addEventListener("click", (event) => event.stopPropagation());
+  editable.addEventListener("keydown", (event) => event.stopPropagation());
+  editable.addEventListener("input", () => {
+    node.dataset.html = editable.innerHTML;
+    emitEditorObjectChange();
+  });
+  editable.addEventListener("paste", () => {
+    window.setTimeout(() => {
+      node.dataset.html = editable.innerHTML;
+      emitEditorObjectChange();
+    }, 0);
+  });
+};
+
+const renderShapeSvg = (svg, type, width, height, fill = "#eef2ff", stroke = "#4f46e5") => {
+  svg.innerHTML = "";
+  svg.setAttribute("width", String(width));
+  svg.setAttribute("height", String(height));
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+
+  const create = (tag) => document.createElementNS("http://www.w3.org/2000/svg", tag);
+  const append = (shape, options = {}) => {
+    if (!options.noFill) shape.setAttribute("fill", fill);
+    if (options.fill) shape.setAttribute("fill", options.fill);
+    shape.setAttribute("stroke", stroke);
+    shape.setAttribute("stroke-width", options.strokeWidth || "3");
+    shape.setAttribute("stroke-linecap", "round");
+    shape.setAttribute("stroke-linejoin", "round");
+    svg.appendChild(shape);
+  };
+
+  const polygon = (points) => {
+    const shape = create("polygon");
+    shape.setAttribute("points", points);
+    append(shape);
+  };
+
+  const path = (d, options) => {
+    const shape = create("path");
+    shape.setAttribute("d", d);
+    append(shape, options);
+  };
+
+  if (type === "circle" || type === "oval") {
+    const shape = create("ellipse");
+    shape.setAttribute("cx", String(width / 2));
+    shape.setAttribute("cy", String(height / 2));
+    shape.setAttribute("rx", String(type === "circle" ? Math.max(Math.min(width, height) / 2 - 4, 4) : Math.max(width / 2 - 4, 4)));
+    shape.setAttribute("ry", String(Math.max(height / 2 - 4, 4)));
+    append(shape);
+  } else if (type === "triangle") {
+    polygon(`${width / 2},4 ${width - 4},${height - 4} 4,${height - 4}`);
+  } else if (type === "right-triangle") {
+    polygon(`4,4 ${width - 4},${height - 4} 4,${height - 4}`);
+  } else if (type === "diamond") {
+    polygon(`${width / 2},4 ${width - 4},${height / 2} ${width / 2},${height - 4} 4,${height / 2}`);
+  } else if (type === "pentagon") {
+    polygon(`${width / 2},4 ${width - 5},${height * 0.38} ${width * 0.82},${height - 4} ${width * 0.18},${height - 4} 5,${height * 0.38}`);
+  } else if (type === "hexagon") {
+    polygon(`${width * 0.25},4 ${width * 0.75},4 ${width - 5},${height / 2} ${width * 0.75},${height - 4} ${width * 0.25},${height - 4} 5,${height / 2}`);
+  } else if (type === "star") {
+    polygon(`${width / 2},4 ${width * 0.61},${height * 0.36} ${width - 5},${height * 0.36} ${width * 0.68},${height * 0.56} ${width * 0.8},${height - 5} ${width / 2},${height * 0.68} ${width * 0.2},${height - 5} ${width * 0.32},${height * 0.56} 5,${height * 0.36} ${width * 0.39},${height * 0.36}`);
+  } else if (type === "heart") {
+    path(`M ${width / 2} ${height - 8} C ${width * 0.14} ${height * 0.62}, 4 ${height * 0.42}, ${width * 0.16} ${height * 0.22} C ${width * 0.28} 4, ${width * 0.43} ${height * 0.12}, ${width / 2} ${height * 0.25} C ${width * 0.57} ${height * 0.12}, ${width * 0.72} 4, ${width * 0.84} ${height * 0.22} C ${width - 4} ${height * 0.42}, ${width * 0.86} ${height * 0.62}, ${width / 2} ${height - 8} Z`);
+  } else if (type === "speech-bubble") {
+    path(`M 8 8 H ${width - 8} Q ${width - 4} 8 ${width - 4} 12 V ${height - 24} Q ${width - 4} ${height - 20} ${width - 8} ${height - 20} H ${width * 0.42} L ${width * 0.28} ${height - 6} V ${height - 20} H 8 Q 4 ${height - 20} 4 ${height - 24} V 12 Q 4 8 8 8 Z`);
+  } else if (type === "cloud") {
+    path(`M ${width * 0.22} ${height * 0.68} C ${width * 0.08} ${height * 0.66}, ${width * 0.06} ${height * 0.38}, ${width * 0.28} ${height * 0.42} C ${width * 0.34} ${height * 0.18}, ${width * 0.62} ${height * 0.18}, ${width * 0.68} ${height * 0.42} C ${width * 0.9} ${height * 0.38}, ${width * 0.92} ${height * 0.66}, ${width * 0.76} ${height * 0.68} Z`);
+  } else if (type === "check") {
+    path(`M ${width * 0.18} ${height * 0.52} L ${width * 0.42} ${height * 0.74} L ${width * 0.82} ${height * 0.28}`, { noFill: true, strokeWidth: "7" });
+  } else if (type === "cross") {
+    path(`M ${width * 0.24} ${height * 0.24} L ${width * 0.76} ${height * 0.76} M ${width * 0.76} ${height * 0.24} L ${width * 0.24} ${height * 0.76}`, { noFill: true, strokeWidth: "7" });
+  } else if (type === "line" || type === "arrow" || type === "double-arrow") {
+    const shape = create("line");
+    shape.setAttribute("x1", "8");
+    shape.setAttribute("y1", String(height / 2));
+    shape.setAttribute("x2", String(width - 12));
+    shape.setAttribute("y2", String(height / 2));
+    append(shape, { noFill: true, strokeWidth: "5" });
+
+    if (type === "arrow" || type === "double-arrow") {
+      const arrowHead = create("polygon");
+      arrowHead.setAttribute("points", `${width - 6},${height / 2} ${width - 24},${height / 2 - 10} ${width - 24},${height / 2 + 10}`);
+      arrowHead.setAttribute("fill", stroke);
+      svg.appendChild(arrowHead);
+    }
+    if (type === "double-arrow") {
+      const arrowTail = create("polygon");
+      arrowTail.setAttribute("points", `6,${height / 2} 24,${height / 2 - 10} 24,${height / 2 + 10}`);
+      arrowTail.setAttribute("fill", stroke);
+      svg.appendChild(arrowTail);
+    }
+  } else {
+    const shape = create("rect");
+    shape.setAttribute("x", "4");
+    shape.setAttribute("y", "4");
+    shape.setAttribute("width", String(Math.max(width - 8, 8)));
+    shape.setAttribute("height", String(Math.max(height - 8, 8)));
+    shape.setAttribute("rx", type === "rounded-rectangle" ? "16" : "6");
+    append(shape);
+  }
+};
+
+const getShapeHtml = (type) => {
+  const isLineShape = ["line", "arrow", "double-arrow"].includes(type);
+  const width = isLineShape ? 240 : 170;
+  const height = isLineShape ? 48 : 110;
+
+  return `<div class="ql-shape-embed" data-type="${type}" data-width="${width}" data-height="${height}" data-x="0" data-y="0" data-fill="#eef2ff" data-stroke="#4f46e5"></div><p><br></p>`;
+};
+
+const getVideoHtml = (src) =>
+  `<div class="ql-resizable-video-wrapper" data-src="${src}" data-width="480" data-height="280" data-x="0" data-y="0"><video src="${src}" controls style="max-width:100%;width:480px;height:280px;border-radius:10px;"></video></div><p><br></p>`;
+
+class ResizableImageBlot extends BlockEmbed {
+  static blotName = "image";
+  static tagName = "div";
+  static className = "ql-resizable-image-wrapper";
+
+  static create(value) {
+    const data = normalizeObjectValue(value, { width: 360, height: 220, x: 0, y: 0 });
+    const node = super.create();
+    const image = document.createElement("img");
+
+    node.dataset.src = data.src || "";
+    node.dataset.width = String(data.width || 360);
+    node.dataset.height = String(data.height || 220);
+    node.dataset.x = String(data.x || 0);
+    node.dataset.y = String(data.y || 0);
+
+    image.src = data.src || "";
+    image.alt = "Inserted";
+    image.draggable = false;
+    image.style.objectFit = "contain";
+    image.style.display = "block";
+    node.appendChild(image);
+
+    attachObjectControls(node, image);
+    return node;
+  }
+
+  static value(domNode) {
+    const image = domNode.querySelector("img");
+    return {
+      src: image?.src || domNode.dataset.src || "",
+      width: Number(domNode.dataset.width || 360),
+      height: Number(domNode.dataset.height || 220),
+      x: Number(domNode.dataset.x || 0),
+      y: Number(domNode.dataset.y || 0),
+    };
+  }
+}
+
+class VideoBlot extends BlockEmbed {
+  static blotName = "custom-video";
+  static tagName = "div";
+  static className = "ql-resizable-video-wrapper";
+
+  static create(value) {
+    const data = normalizeObjectValue(value, { width: 420, height: 260, x: 0, y: 0 });
+    const node = super.create();
+    const video = document.createElement("video");
+
+    node.dataset.src = data.src || "";
+    node.dataset.width = String(data.width || 420);
+    node.dataset.height = String(data.height || 260);
+    node.dataset.x = String(data.x || 0);
+    node.dataset.y = String(data.y || 0);
+
+    video.src = data.src || "";
+    video.controls = true;
+    video.draggable = false;
+    video.style.objectFit = "contain";
+    video.style.display = "block";
+    node.appendChild(video);
+
+    attachObjectControls(node, video);
+    return node;
+  }
+
+  static value(domNode) {
+    const video = domNode.querySelector("video");
+    return {
+      src: video?.src || domNode.dataset.src || "",
+      width: Number(domNode.dataset.width || 420),
+      height: Number(domNode.dataset.height || 260),
+      x: Number(domNode.dataset.x || 0),
+      y: Number(domNode.dataset.y || 0),
+    };
+  }
+}
 
 class ShapeBlot extends BlockEmbed {
-  static blotName = 'shape';
-  static tagName = 'div';
-  static className = 'ql-shape-embed';
+  static blotName = "shape";
+  static tagName = "div";
+  static className = "ql-shape-embed";
 
   static create(value) {
+    const data = normalizeObjectValue(value, {
+      type: "rectangle",
+      width: 160,
+      height: 100,
+      x: 0,
+      y: 0,
+      fill: "#eef2ff",
+      stroke: "#4f46e5",
+    });
     const node = super.create();
-    node.setAttribute('contenteditable', 'false');
-    node.style.display = 'inline-block';
-    node.style.verticalAlign = 'middle';
-    node.style.userSelect = 'none';
-    node.dataset.shape = value.type || 'rectangle';
-    node.dataset.width = value.width || 120;
-    node.dataset.height = value.height || 80;
-    // create svg
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    svg.setAttribute('width', node.dataset.width);
-    svg.setAttribute('height', node.dataset.height);
-    svg.setAttribute('viewBox', `0 0 ${node.dataset.width} ${node.dataset.height}`);
-    svg.style.display = 'block';
-    svg.style.pointerEvents = 'none';
-    svg.classList.add('ql-shape-svg');
-    // draw shape
-    const type = node.dataset.shape;
-    let el;
-    if (type === 'circle') {
-      el = document.createElementNS('http://www.w3.org/2000/svg', 'ellipse');
-      el.setAttribute('cx', node.dataset.width/2);
-      el.setAttribute('cy', node.dataset.height/2);
-      el.setAttribute('rx', node.dataset.width/2 - 2);
-      el.setAttribute('ry', node.dataset.height/2 - 2);
-    } else if (type === 'triangle') {
-      el = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
-      const w = node.dataset.width, h = node.dataset.height;
-      el.setAttribute('points', `${w/2},2 ${w-2},${h-2} 2,${h-2}`);
-    } else { // rectangle default
-      el = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-      el.setAttribute('x', 2);
-      el.setAttribute('y', 2);
-      el.setAttribute('width', node.dataset.width - 4);
-      el.setAttribute('height', node.dataset.height - 4);
-      el.setAttribute('rx', 4);
-    }
-    el.setAttribute('fill', value.fill || '#60a5fa');
-    svg.appendChild(el);
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+
+    node.dataset.type = data.type || "rectangle";
+    node.dataset.width = String(data.width || 160);
+    node.dataset.height = String(data.height || 100);
+    node.dataset.x = String(data.x || 0);
+    node.dataset.y = String(data.y || 0);
+    node.dataset.fill = data.fill || "#eef2ff";
+    node.dataset.stroke = data.stroke || "#4f46e5";
+
+    svg.classList.add("ql-shape-svg");
+    svg.style.display = "block";
+    svg.style.pointerEvents = "none";
     node.appendChild(svg);
 
-    // attach simple drag to float left/right (move) but do not change shape on drag
-    let startX = 0;
-    node.addEventListener('pointerdown', (ev) => {
-      if (ev.button !== 0) return;
-      startX = ev.clientX;
-      node.setPointerCapture(ev.pointerId);
-      const up = (e) => {
-        const dx = e.clientX - startX;
-        if (dx < -30) node.style.cssFloat = 'left';
-        else if (dx > 30) node.style.cssFloat = 'right';
-        else node.style.cssFloat = 'none';
-        try { node.releasePointerCapture(e.pointerId); } catch { /* pointer capture may already be released */ }
-        window.removeEventListener('pointerup', up);
-      };
-      window.addEventListener('pointerup', up);
-    });
+    const updateShape = (width, height) => {
+      renderShapeSvg(svg, node.dataset.type, width, height, node.dataset.fill, node.dataset.stroke);
+    };
 
+    attachObjectControls(node, svg, updateShape);
     return node;
   }
 
   static value(domNode) {
     return {
-      type: domNode.dataset.shape,
-      width: parseInt(domNode.dataset.width, 10),
-      height: parseInt(domNode.dataset.height, 10)
+      type: domNode.dataset.type || "rectangle",
+      width: Number(domNode.dataset.width || 160),
+      height: Number(domNode.dataset.height || 100),
+      x: Number(domNode.dataset.x || 0),
+      y: Number(domNode.dataset.y || 0),
+      fill: domNode.dataset.fill || "#eef2ff",
+      stroke: domNode.dataset.stroke || "#4f46e5",
     };
   }
 }
 
-// Custom image blot overriding default image behavior to allow inline flow and resizing handles
-class CustomImageBlot extends BlockEmbed {
-  static blotName = 'custom-image';
-  static tagName = 'div';
-  static className = 'ql-custom-image-wrapper';
+class TextBoxBlot extends BlockEmbed {
+  static blotName = "text-box";
+  static tagName = "div";
+  static className = "ql-text-box-wrapper";
 
   static create(value) {
-    const payload = typeof value === 'string' ? { src: value } : (value || {});
-    const initialWidth = Number(payload.width) || 360;
-    const initialHeight = Number(payload.height) || null;
-    const initialFloat = payload.float || 'none';
+    const data = normalizeTextBoxValue(value);
     const node = super.create();
-    node.setAttribute('contenteditable', 'false');
-    node.style.display = 'inline-block';
-    node.style.verticalAlign = 'middle';
-    node.style.userSelect = 'none';
-    node.style.position = 'relative';
-    node.style.margin = '0 8px 8px 0';
-    node.dataset.src = payload.src || '';
-    node.dataset.width = initialWidth;
-    node.dataset.float = initialFloat;
-    if (initialHeight) node.dataset.height = initialHeight;
-    node.style.cssFloat = initialFloat === 'none' ? '' : initialFloat;
+    const handle = document.createElement("div");
+    const editable = document.createElement("div");
 
-    const img = document.createElement('img');
-    img.className = 'ql-custom-image';
-    img.style.display = 'block';
-    img.style.maxWidth = '100%';
-    img.style.width = `${initialWidth}px`;
-    img.style.height = initialHeight ? `${initialHeight}px` : 'auto';
-    img.setAttribute('draggable', 'false');
-    node.appendChild(img);
+    handle.dataset.textBoxHandle = "true";
+    editable.dataset.textBoxContent = "true";
+    node.dataset.html = data.html || TEXT_BOX_DEFAULTS.html;
+    node.dataset.left = String(data.left ?? TEXT_BOX_DEFAULTS.left);
+    node.dataset.top = String(data.top ?? TEXT_BOX_DEFAULTS.top);
+    node.dataset.width = String(data.width ?? TEXT_BOX_DEFAULTS.width);
+    node.dataset.height = String(data.height ?? TEXT_BOX_DEFAULTS.height);
 
-    // Create 8 resize handles (no visible border box). Handles are tiny dots around image.
-    const handles = ['nw','n','ne','e','se','s','sw','w'].map((pos) => {
-      const h = document.createElement('div');
-      h.className = `ql-resize-handle ql-handle-${pos}`;
-      h.style.position = 'absolute';
-      h.style.width = '10px'; h.style.height = '10px';
-      h.style.background = 'white'; h.style.border = '1px solid rgba(0,0,0,0.15)';
-      h.style.borderRadius = '50%'; h.style.boxSizing = 'border-box';
-      h.style.transform = 'translate(-50%, -50%)';
-      h.style.cursor = 'nwse-resize';
-      h.style.zIndex = '10';
-      h.style.display = 'none';
-      node.appendChild(h);
-      return { pos, el: h };
-    });
+    editable.innerHTML = data.html || TEXT_BOX_DEFAULTS.html;
+    node.appendChild(handle);
+    node.appendChild(editable);
 
-    const positionHandles = () => {
-      // calculate relative positions
-      const w = img.offsetWidth; const hgt = img.offsetHeight;
-      const coords = {
-        nw: [0,0], n: [w/2,0], ne: [w,0], e: [w,hgt/2], se: [w,hgt], s: [w/2,hgt], sw: [0,hgt], w: [0,hgt/2]
-      };
-      handles.forEach(h => {
-        const [x,y] = coords[h.pos];
-        h.el.style.left = `${x}px`;
-        h.el.style.top = `${y}px`;
-      });
-    };
-
-    const syncNaturalImageSize = () => {
-      if (payload.width || !img.naturalWidth) return;
-
-      const width = Math.min(img.naturalWidth, 520);
-      const height = Math.round(width * (img.naturalHeight / img.naturalWidth));
-      node.dataset.width = width;
-      node.dataset.height = height;
-      img.style.width = `${width}px`;
-      img.style.height = `${height}px`;
-      positionHandles();
-    };
-
-    img.addEventListener('load', syncNaturalImageSize);
-    img.src = payload.src || '';
-    if (img.complete) syncNaturalImageSize();
-
-    // show handles on click/focus, hide on blur
-    node.addEventListener('click', (e) => {
-      handles.forEach(h => h.el.style.display = 'block');
-      positionHandles();
-      e.stopPropagation();
-    });
-    document.addEventListener('click', () => { handles.forEach(h => h.el.style.display = 'none'); });
-
-    // Resize logic
-    handles.forEach(h => {
-      let startX, startY, startW, startH, startAspect;
-      const onPointerDown = (ev) => {
-        ev.preventDefault(); ev.stopPropagation();
-        startX = ev.clientX; startY = ev.clientY;
-        startW = img.offsetWidth; startH = img.offsetHeight; startAspect = startH ? startW / startH : 1;
-        h.el.setPointerCapture(ev.pointerId);
-        const move = (e) => {
-          let dx = e.clientX - startX, dy = e.clientY - startY;
-          let newW = startW, newH = startH;
-          if (['nw','ne','se','sw'].includes(h.pos)) {
-            // preserve aspect ratio for corner handles
-            if (Math.abs(dx) > Math.abs(dy)) {
-              newW = Math.max(10, startW + (h.pos.includes('w') ? -dx : dx));
-              newH = Math.max(10, Math.round(newW / startAspect));
-            } else {
-              newH = Math.max(10, startH + (h.pos.includes('n') ? -dy : dy));
-              newW = Math.max(10, Math.round(newH * startAspect));
-            }
-          } else if (h.pos === 'n' || h.pos === 's') {
-            newH = Math.max(10, startH + (h.pos === 'n' ? -dy : dy));
-          } else { // e or w
-            newW = Math.max(10, startW + (h.pos === 'w' ? -dx : dx));
-          }
-          node.dataset.width = newW;
-          node.dataset.height = newH;
-          img.style.width = `${newW}px`;
-          img.style.height = `${newH}px`;
-          positionHandles();
-        };
-        const up = (e) => { try { h.el.releasePointerCapture(e.pointerId); } catch { /* pointer capture may already be released */ } window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
-        window.addEventListener('pointermove', move);
-        window.addEventListener('pointerup', up);
-      };
-      h.el.addEventListener('pointerdown', onPointerDown);
-    });
-
-    // Simple horizontal drag to float left/right (move within flow) when user drags the image wrapper
-    let dragStartX = 0;
-    node.addEventListener('pointerdown', (ev) => {
-      if (ev.target.classList.contains('ql-resize-handle')) return; // resize handles manage their own
-      dragStartX = ev.clientX;
-      node.setPointerCapture(ev.pointerId);
-      const up = (e) => {
-        const dx = e.clientX - dragStartX;
-        if (dx < -30) node.style.cssFloat = 'left';
-        else if (dx > 30) node.style.cssFloat = 'right';
-        else node.style.cssFloat = 'none';
-        node.dataset.float = node.style.cssFloat || 'none';
-        try { node.releasePointerCapture(e.pointerId); } catch { /* pointer capture may already be released */ }
-        window.removeEventListener('pointerup', up);
-      };
-      window.addEventListener('pointerup', up);
-    });
-
+    attachTextBoxControls(node);
     return node;
   }
 
   static value(domNode) {
-    const img = domNode.querySelector('img');
+    const editable = domNode.querySelector("[data-text-box-content]");
     return {
-      src: img ? img.src : domNode.dataset.src,
-      width: parseInt(domNode.dataset.width, 10) || img?.offsetWidth || 360,
-      height: parseInt(domNode.dataset.height, 10) || img?.offsetHeight || null,
-      float: domNode.dataset.float || 'none',
+      html: editable?.innerHTML || domNode.dataset.html || TEXT_BOX_DEFAULTS.html,
+      left: Number(domNode.dataset.left || Number.parseFloat(domNode.style.left) || TEXT_BOX_DEFAULTS.left),
+      top: Number(domNode.dataset.top || Number.parseFloat(domNode.style.top) || TEXT_BOX_DEFAULTS.top),
+      width: Number(domNode.dataset.width || Number.parseFloat(domNode.style.width) || TEXT_BOX_DEFAULTS.width),
+      height: Number(domNode.dataset.height || Number.parseFloat(domNode.style.height) || TEXT_BOX_DEFAULTS.height),
     };
   }
 }
 
-ReactQuill.Quill.register(ShapeBlot);
-ReactQuill.Quill.register(CustomImageBlot);
+const decorateEditorObjects = (root) => {
+  if (!root) return;
+  root.style.position = "relative";
 
-// safe helper to get the Quill editor instance without throwing if not yet instantiated
-const safeGetEditor = (ref) => {
+  root.querySelectorAll(".ql-resizable-video-wrapper").forEach((node) => {
+    if (node.dataset.decorated === "true") return;
+    const video = node.querySelector("video");
+    if (!video) return;
+    node.dataset.width ||= "480";
+    node.dataset.height ||= "280";
+    node.dataset.x ||= "0";
+    node.dataset.y ||= "0";
+    attachObjectControls(node, video);
+  });
+
+  root.querySelectorAll(".ql-shape-embed").forEach((node) => {
+    if (node.dataset.decorated === "true") return;
+    let svg = node.querySelector("svg");
+    if (!svg) {
+      svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.classList.add("ql-shape-svg");
+      svg.style.display = "block";
+      svg.style.pointerEvents = "none";
+      node.appendChild(svg);
+    }
+
+    node.dataset.type ||= "rectangle";
+    node.dataset.width ||= "170";
+    node.dataset.height ||= "110";
+    node.dataset.x ||= "0";
+    node.dataset.y ||= "0";
+    node.dataset.fill ||= "#eef2ff";
+    node.dataset.stroke ||= "#4f46e5";
+
+    const updateShape = (width, height) => {
+      renderShapeSvg(svg, node.dataset.type, width, height, node.dataset.fill, node.dataset.stroke);
+    };
+
+    attachObjectControls(node, svg, updateShape);
+  });
+
+  root.querySelectorAll(".ql-text-box-wrapper").forEach((node) => {
+    attachTextBoxControls(node);
+  });
+};
+
+const Font = Quill.import("attributors/style/font");
+Font.whitelist = FONT_OPTIONS.map((font) => font.value).filter(Boolean);
+Quill.register(Font, true);
+
+const Size = Quill.import("attributors/style/size");
+Size.whitelist = SIZE_OPTIONS;
+Quill.register(Size, true);
+
+Quill.register(ResizableImageBlot, true);
+Quill.register(VideoBlot, true);
+Quill.register(ShapeBlot, true);
+Quill.register(TextBoxBlot, true);
+
+const modules = {
+  toolbar: false,
+  history: { delay: 500, maxStack: 100, userOnly: true },
+};
+
+const formats = [
+  "font",
+  "size",
+  "header",
+  "bold",
+  "italic",
+  "underline",
+  "strike",
+  "color",
+  "background",
+  "align",
+  "list",
+  "blockquote",
+  "code-block",
+  "link",
+  "image",
+  "custom-video",
+  "shape",
+  "text-box",
+];
+
+const safeGetEditor = (quillRef) => {
   try {
-    return ref?.current?.getEditor ? ref.current.getEditor() : null;
+    return quillRef.current?.getEditor?.() || null;
   } catch {
     return null;
   }
 };
 
-const TEXT_COLOR_OPTIONS = ["#000000", "#5f6368", "#d93025", "#f29900", "#188038", "#1967d2", "#9334e6"];
-const HIGHLIGHT_COLOR_OPTIONS = ["#ffffff", "#fce8e6", "#fef7e0", "#e6f4ea", "#e8f0fe", "#f3e8fd", "#fff475"];
+const isObjectDeleteTypingTarget = (target, quillRoot) => {
+  if (!target?.closest) return false;
+  if (target.closest("[data-text-box-content]")) return true;
+  if (target.closest("input, textarea, select, button")) return true;
 
-const PARAGRAPH_OPTIONS = [
-  { label: "Normal text", value: "" },
-  { label: "Heading 1", value: "1" },
-  { label: "Heading 2", value: "2" },
-  { label: "Heading 3", value: "3" },
-];
-
-const ALIGN_OPTIONS = [
-  { label: "Align left", value: false, icon: "left" },
-  { label: "Align center", value: "center", icon: "center" },
-  { label: "Align right", value: "right", icon: "right" },
-  { label: "Justify", value: "justify", icon: "justify" },
-];
-
-const getActiveUserName = (activeUser) => {
-  if (typeof activeUser === 'string') return activeUser;
-  return activeUser?.username || activeUser?.name || activeUser?.email || 'Collaborator';
+  const editable = target.closest("[contenteditable='true']");
+  return Boolean(editable && editable !== quillRoot);
 };
 
-const normalizeToolbarColor = (value, fallback) => {
-  if (typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value)) return value;
-  return fallback;
+const deleteSelectedEditorObject = (quill) => {
+  const selectedObject = quill?.root?.querySelector(".ql-editor-object.is-selected");
+  if (!selectedObject) return false;
+
+  const blot = Quill.find(selectedObject);
+  if (blot) {
+    const index = quill.getIndex(blot);
+    quill.deleteText(index, 1, "user");
+    quill.setSelection(Math.max(index - 1, 0), 0, "silent");
+  } else {
+    selectedObject.remove();
+    quill.update("user");
+    emitEditorObjectChange();
+  }
+
+  return true;
 };
 
-const ToolbarSeparator = () => <div className="mx-1 h-6 w-px shrink-0 bg-slate-300" />;
+const formatFileSize = (bytes) => {
+  if (!bytes) return "0 MB";
+  return `${(bytes / (1024 * 1024)).toFixed(bytes >= 1024 * 1024 ? 1 : 2)} MB`;
+};
 
-const ToolbarButton = ({ title, active = false, disabled = false, className = "", children, onClick }) => (
+const getVersionPreview = (content) => {
+  if (!content) return "Empty document";
+
+  if (typeof content === "string") {
+    return content.replace(/\s+/g, " ").trim().slice(0, 140) || "Empty document";
+  }
+
+  if (!Array.isArray(content.ops)) return "Rich document content";
+
+  const preview = content.ops
+    .map((op) => {
+      if (typeof op.insert === "string") return op.insert;
+      if (op.insert?.image) return "[image]";
+      if (op.insert?.["custom-video"]) return "[video]";
+      if (op.insert?.shape) return "[shape]";
+      if (op.insert?.["text-box"]) return "[text box]";
+      return "[object]";
+    })
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return preview.slice(0, 140) || "Empty document";
+};
+
+const getVersionContentSignature = (content) => {
+  try {
+    return JSON.stringify(content ?? null);
+  } catch {
+    return String(content ?? "");
+  }
+};
+
+const dedupeVersions = (versionList) => {
+  if (!Array.isArray(versionList)) return [];
+
+  const uniqueVersions = [];
+  let previousSignature = null;
+
+  versionList.forEach((version) => {
+    const signature = getVersionContentSignature(version.content);
+    if (signature === previousSignature) return;
+
+    uniqueVersions.push(version);
+    previousSignature = signature;
+  });
+
+  return uniqueVersions;
+};
+
+const applyRestoredContent = (quill, content) => {
+  if (!content) {
+    quill.setContents({ ops: [] }, "user");
+    return;
+  }
+
+  if (typeof content === "string") {
+    quill.setText(content, "user");
+    return;
+  }
+
+  if (content.ops) {
+    quill.setContents(content, "user");
+    return;
+  }
+
+  quill.setContents({ ops: [] }, "user");
+};
+
+const setEditorContent = (quill, content) => {
+  if (!content) {
+    quill.setContents({ ops: [] }, "silent");
+    return;
+  }
+
+  if (typeof content === "string") {
+    quill.setText(content, "silent");
+    return;
+  }
+
+  if (content.ops) {
+    quill.setContents(content, "silent");
+    return;
+  }
+
+  quill.setContents({ ops: [] }, "silent");
+};
+
+const ToolbarButton = ({ icon: Icon, label, active, className = "", ...props }) => (
   <button
     type="button"
-    title={title}
-    aria-label={title}
-    aria-pressed={active}
-    disabled={disabled}
-    onMouseDown={(event) => event.preventDefault()}
-    onClick={onClick}
-    className={`inline-flex h-8 min-w-8 shrink-0 items-center justify-center rounded-md px-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:cursor-not-allowed disabled:opacity-40 ${active ? "bg-blue-100 text-blue-700" : ""} ${className}`}
+    title={label}
+    aria-label={label}
+    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-700 transition hover:bg-indigo-50 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-40 ${
+      active ? "bg-indigo-100 text-indigo-700 shadow-sm" : "bg-transparent"
+    } ${className}`}
+    {...props}
   >
-    {children}
+    <Icon size={17} strokeWidth={2.2} aria-hidden="true" />
   </button>
 );
 
-const ToolbarSelect = ({ title, value, className = "", children, onChange }) => (
-  <select
-    title={title}
-    aria-label={title}
-    value={value}
-    onChange={(event) => onChange(event.target.value)}
-    className={`h-8 shrink-0 rounded-md border border-transparent bg-transparent px-2 text-sm text-slate-800 outline-none transition-colors hover:bg-slate-200 focus:border-blue-300 focus:bg-white ${className}`}
-  >
-    {children}
-  </select>
-);
-
-const AlignIcon = ({ type }) => {
-  const widths = {
-    left: [18, 12, 16, 10],
-    center: [14, 18, 12, 16],
-    right: [10, 16, 12, 18],
-    justify: [18, 18, 18, 18],
-  }[type];
-
-  return (
-    <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-      {widths.map((width, index) => (
-        <path
-          key={`${type}-${index}`}
-          d={`M${type === "right" ? 18 - width : type === "center" ? (20 - width) / 2 : 2} ${4 + index * 4}h${width}`}
-          stroke="currentColor"
-          strokeWidth="1.7"
-          strokeLinecap="round"
-        />
-      ))}
-    </svg>
-  );
-};
-
-const UndoIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-    <path d="M7 7H3v4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    <path d="M3 11a8 8 0 1 0 2.34-5.66L3 7.68" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-  </svg>
-);
-
-const RedoIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-    <path d="M17 7h4v4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    <path d="M21 11a8 8 0 1 1-2.34-5.66L21 7.68" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-  </svg>
-);
-
-const SaveIcon = () => (
-  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-    <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
-    <path d="M17 21v-8H7v8M7 3v5h8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-  </svg>
-);
-
-const LinkIcon = () => (
-  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-    <path d="M10 13a5 5 0 0 0 7.07 0l2-2a5 5 0 0 0-7.07-7.07l-1.1 1.1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-    <path d="M14 11a5 5 0 0 0-7.07 0l-2 2A5 5 0 0 0 12 20.07l1.1-1.1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-  </svg>
-);
-
-const ImageIcon = () => (
-  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-    <rect x="3" y="5" width="18" height="14" rx="2" stroke="currentColor" strokeWidth="2" />
-    <path d="m3 16 5-5 4 4 2-2 7 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-    <circle cx="16.5" cy="9.5" r="1.5" fill="currentColor" />
-  </svg>
-);
-
-const ListIcon = ({ ordered = false }) => (
-  <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-    {ordered ? (
-      <>
-        <text x="2" y="7" fontSize="6" fill="currentColor">1</text>
-        <text x="2" y="15" fontSize="6" fill="currentColor">2</text>
-      </>
-    ) : (
-      <>
-        <circle cx="4" cy="6" r="1.4" fill="currentColor" />
-        <circle cx="4" cy="14" r="1.4" fill="currentColor" />
-      </>
-    )}
-    <path d="M8 6h9M8 14h9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-  </svg>
-);
-
-const ClearIcon = () => (
-  <span className="relative text-sm font-semibold">
-    Tx
-    <span className="absolute left-0 top-1/2 h-px w-full -rotate-12 bg-current" />
-  </span>
-);
-
-const ToolbarPopover = ({ title, inputLabel, value, placeholder, submitLabel, onChange, onSubmit, onClose }) => (
-  <div className="absolute left-0 top-10 z-30 w-80 rounded-lg border border-slate-200 bg-white p-3 shadow-xl">
-    <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">{title}</div>
-    <form onSubmit={onSubmit} className="space-y-3">
-      <label className="block text-sm text-slate-700">
-        <span className="sr-only">{inputLabel}</span>
-        <input
-          autoFocus
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          placeholder={placeholder}
-          className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-        />
-      </label>
-      <div className="flex justify-end gap-2">
-        <button type="button" onClick={onClose} className="rounded-md px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-100">
-          Cancel
-        </button>
-        <button type="submit" className="rounded-md bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700">
-          {submitLabel}
-        </button>
-      </div>
-    </form>
-  </div>
-);
-
-const CustomToolbar = ({
-  activeFormats,
-  imageUrl,
-  isImagePopoverOpen,
-  isLinkPopoverOpen,
-  linkUrl,
-  onApplyImageUrl,
-  onApplyLink,
-  onClearFormatting,
-  onColor,
-  onFormat,
-  onImagePopoverToggle,
-  onLinkPopoverToggle,
-  onRedo,
-  onSave,
-  onSetImageUrl,
-  onSetLinkUrl,
-  onUndo,
-}) => {
-  const normalizedFont = normalizeFontValue(activeFormats.font);
-  const headerValue = typeof activeFormats.header === "number" || typeof activeFormats.header === "string" ? String(activeFormats.header) : "";
-  const fontValue = typeof normalizedFont === "string" ? normalizedFont : "";
-  const sizeValue = typeof activeFormats.size === "string" ? activeFormats.size : "";
-  const textColor = normalizeToolbarColor(activeFormats.color, "#000000");
-  const highlightColor = normalizeToolbarColor(activeFormats.background, "#ffffff");
-
-  return (
-    <div className="sticky top-0 z-20 border-b border-slate-200 bg-white px-3 py-2 shadow-sm">
-      <div className="overflow-x-auto">
-        <div className="flex min-w-max items-center gap-1 rounded-full bg-[#edf2fa] px-2 py-1">
-          <ToolbarButton title="Undo" onClick={onUndo}><UndoIcon /></ToolbarButton>
-          <ToolbarButton title="Redo" onClick={onRedo}><RedoIcon /></ToolbarButton>
-          <ToolbarButton title="Save" onClick={onSave}><SaveIcon /></ToolbarButton>
-
-          <ToolbarSeparator />
-
-          <ToolbarSelect title="Paragraph style" value={headerValue} className="w-36" onChange={(value) => onFormat("header", value ? Number(value) : false)}>
-            {PARAGRAPH_OPTIONS.map((option) => (
-              <option key={option.label} value={option.value}>{option.label}</option>
-            ))}
-          </ToolbarSelect>
-
-          <ToolbarSelect title="Font family" value={fontValue} className="w-40" onChange={(value) => onFormat("font", value || false)}>
-            {FONT_OPTIONS.map(({ label, value }) => (
-              <option value={value} key={`${label}-${value}`}>{label}</option>
-            ))}
-          </ToolbarSelect>
-
-          <ToolbarSelect title="Font size" value={sizeValue} className="w-24" onChange={(value) => onFormat("size", value || false)}>
-            {SIZE_OPTIONS.map(({ label, value }) => (
-              <option value={value} key={`${label}-${value}`}>{label}</option>
-            ))}
-          </ToolbarSelect>
-
-          <ToolbarSeparator />
-
-          <ToolbarButton title="Bold" active={!!activeFormats.bold} className="font-bold" onClick={() => onFormat("bold", !activeFormats.bold)}>B</ToolbarButton>
-          <ToolbarButton title="Italic" active={!!activeFormats.italic} className="italic" onClick={() => onFormat("italic", !activeFormats.italic)}>I</ToolbarButton>
-          <ToolbarButton title="Underline" active={!!activeFormats.underline} className="underline" onClick={() => onFormat("underline", !activeFormats.underline)}>U</ToolbarButton>
-          <ToolbarButton title="Strike" active={!!activeFormats.strike} className="line-through" onClick={() => onFormat("strike", !activeFormats.strike)}>S</ToolbarButton>
-
-          <ToolbarSeparator />
-
-          <div className="flex items-center rounded-md px-1 hover:bg-slate-200" title="Text color">
-            <span className="mr-1 text-sm font-semibold text-slate-700">A</span>
-            <input
-              aria-label="Text color"
-              type="color"
-              value={textColor}
-              list="editor-text-colors"
-              onChange={(event) => onColor("color", event.target.value)}
-              className="h-7 w-7 cursor-pointer rounded border-0 bg-transparent p-0"
-            />
-            <datalist id="editor-text-colors">
-              {TEXT_COLOR_OPTIONS.map((color) => <option key={color} value={color} />)}
-            </datalist>
-          </div>
-
-          <div className="flex items-center rounded-md px-1 hover:bg-slate-200" title="Highlight color">
-            <span className="mr-1 rounded-sm px-1 text-sm font-semibold text-slate-700" style={{ backgroundColor: highlightColor }}>A</span>
-            <input
-              aria-label="Highlight color"
-              type="color"
-              value={highlightColor}
-              list="editor-highlight-colors"
-              onChange={(event) => onColor("background", event.target.value)}
-              className="h-7 w-7 cursor-pointer rounded border-0 bg-transparent p-0"
-            />
-            <datalist id="editor-highlight-colors">
-              {HIGHLIGHT_COLOR_OPTIONS.map((color) => <option key={color} value={color} />)}
-            </datalist>
-          </div>
-
-          <ToolbarSeparator />
-
-          {ALIGN_OPTIONS.map((option) => (
-            <ToolbarButton
-              key={option.label}
-              title={option.label}
-              active={option.value ? activeFormats.align === option.value : !activeFormats.align}
-              onClick={() => onFormat("align", option.value)}
-            >
-              <AlignIcon type={option.icon} />
-            </ToolbarButton>
-          ))}
-
-          <ToolbarSeparator />
-
-          <ToolbarButton title="Ordered list" active={activeFormats.list === "ordered"} onClick={() => onFormat("list", activeFormats.list === "ordered" ? false : "ordered")}>
-            <ListIcon ordered />
-          </ToolbarButton>
-          <ToolbarButton title="Bullet list" active={activeFormats.list === "bullet"} onClick={() => onFormat("list", activeFormats.list === "bullet" ? false : "bullet")}>
-            <ListIcon />
-          </ToolbarButton>
-
-          <ToolbarSeparator />
-
-          <div className="relative">
-            <ToolbarButton title="Insert link" active={!!activeFormats.link || isLinkPopoverOpen} onClick={onLinkPopoverToggle}>
-              <LinkIcon />
-            </ToolbarButton>
-            {isLinkPopoverOpen && (
-              <ToolbarPopover
-                title="Insert link"
-                inputLabel="Link URL"
-                value={linkUrl}
-                placeholder="https://example.com"
-                submitLabel="Apply"
-                onChange={onSetLinkUrl}
-                onClose={onLinkPopoverToggle}
-                onSubmit={onApplyLink}
-              />
-            )}
-          </div>
-
-          <div className="relative">
-            <ToolbarButton title="Insert image by URL" active={isImagePopoverOpen} onClick={onImagePopoverToggle}>
-              <ImageIcon />
-            </ToolbarButton>
-            {isImagePopoverOpen && (
-              <ToolbarPopover
-                title="Insert image"
-                inputLabel="Image URL"
-                value={imageUrl}
-                placeholder="https://example.com/image.png"
-                submitLabel="Insert"
-                onChange={onSetImageUrl}
-                onClose={onImagePopoverToggle}
-                onSubmit={onApplyImageUrl}
-              />
-            )}
-          </div>
-
-          <ToolbarButton title="Clear formatting" onClick={onClearFormatting}>
-            <ClearIcon />
-          </ToolbarButton>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const modulesFactory = () => ({
-  toolbar: false,
-  history: { delay: 1000, maxStack: 100, userOnly: true },
-  clipboard: { matchVisual: false }
-});
-
-const formats = [
-  "font", "size", "header",
-  "bold", "italic", "underline", "strike",
-  "script",
-  "color", "background",
-  "align", "indent", "direction",
-  "list",
-  "blockquote", "code-block",
-  "link", "custom-image", "video", "formula",
-  "shape",
-];
-
-// Inject minimal CSS for image handles and shape SVG styling once
-if (typeof document !== 'undefined' && !document.getElementById('quill-custom-styles')) {
-  const style = document.createElement('style');
-  style.id = 'quill-custom-styles';
-  style.innerHTML = `
-    .ql-custom-image-wrapper { display:inline-block; vertical-align:middle; margin:0 8px 8px 0; }
-    .ql-custom-image-wrapper img { display:block; max-width:100%; margin:0 !important; }
-    .ql-custom-image-wrapper .ql-resize-handle { display:none; }
-    /* shown only when wrapper is selected; handled via JS click events */
-    .ql-shape-embed { display:inline-block; vertical-align:middle; margin:0 8px 8px 0; }
-    .ql-shape-embed .ql-shape-svg { display:block; }
-  `;
-  document.head.appendChild(style);
-}
+const ToolbarSeparator = () => <span className="mx-1 h-6 w-px shrink-0 bg-slate-200" />;
 
 const EditorPage = () => {
   const { id: documentId } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
   const quillRef = useRef(null);
+  const imageInputRef = useRef(null);
+  const videoInputRef = useRef(null);
+  const saveTimeoutRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
+  const hasLoadedRef = useRef(false);
 
-  // Basic states
   const [socket, setSocket] = useState(null);
   const [isSocketConnected, setIsSocketConnected] = useState(false);
+  const [isDocumentLoaded, setIsDocumentLoaded] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  const [saveStatus, setSaveStatus] = useState("Loading");
   const [isSaving, setIsSaving] = useState(false);
-  const [documentTitle, setDocumentTitle] = useState('Untitled Document');
+  const [documentTitle, setDocumentTitle] = useState("Untitled Document");
   const [isEditingTitle, setIsEditingTitle] = useState(false);
-  const [titleInput, setTitleInput] = useState('');
+  const [titleInput, setTitleInput] = useState("");
   const [activeUsers, setActiveUsers] = useState([]);
-  const [typingUser, setTypingUser] = useState('');
+  const [typingUser, setTypingUser] = useState("");
+  const [currentFormat, setCurrentFormat] = useState({});
+
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
-  const [collaboratorEmail, setCollaboratorEmail] = useState('');
-  const [shareMessage, setShareMessage] = useState('');
+  const [collaboratorEmail, setCollaboratorEmail] = useState("");
+  const [shareMessage, setShareMessage] = useState("");
   const [shareLoading, setShareLoading] = useState(false);
-  const [copyMessage, setCopyMessage] = useState('');
-  const [documentError, setDocumentError] = useState('');
+  const [copyMessage, setCopyMessage] = useState("");
+  const [collaboratorsList, setCollaboratorsList] = useState([]);
 
-  const [activeFormats, setActiveFormats] = useState({});
-  const [isLinkPopoverOpen, setIsLinkPopoverOpen] = useState(false);
-  const [isImagePopoverOpen, setIsImagePopoverOpen] = useState(false);
-  const [linkUrl, setLinkUrl] = useState('');
-  const [imageUrl, setImageUrl] = useState('');
-  const [savedToolbarRange, setSavedToolbarRange] = useState(null);
+  const [isLinkModalOpen, setIsLinkModalOpen] = useState(false);
+  const [linkText, setLinkText] = useState("");
+  const [linkUrl, setLinkUrl] = useState("");
+  const [linkError, setLinkError] = useState("");
+  const [linkRange, setLinkRange] = useState(null);
+  const [mediaMessage, setMediaMessage] = useState("");
 
-  const getEditor = useCallback(() => {
-    try {
-      const quill = quillRef.current.getEditor();
-      return quill;
-    } catch {
-      return null;
-    }
-  }, []);
-  const modules = useMemo(() => modulesFactory(), []);
+  const [isVersionModalOpen, setIsVersionModalOpen] = useState(false);
+  const [versions, setVersions] = useState([]);
+  const [versionLoading, setVersionLoading] = useState(false);
+  const [versionMessage, setVersionMessage] = useState("");
+  const [versionToRestore, setVersionToRestore] = useState(null);
 
-  const refreshActiveFormats = useCallback(() => {
-    const quill = getEditor();
+  const currentDocumentUrl = useMemo(() => window.location.href, []);
+
+  const updateCurrentFormat = useCallback(() => {
+    const quill = safeGetEditor(quillRef);
     if (!quill) return;
-
     const range = quill.getSelection();
-    if (!range) {
-      setActiveFormats({});
-      return;
-    }
+    setCurrentFormat(range ? quill.getFormat(range) : {});
+  }, []);
 
-    const currentFormats = quill.getFormat(range || undefined);
-    setActiveFormats({
-      ...currentFormats,
-      font: typeof currentFormats.font === 'string' ? normalizeFontValue(currentFormats.font) : currentFormats.font,
+  const saveDocument = useCallback(
+    async ({ quiet = false } = {}) => {
+      const quill = safeGetEditor(quillRef);
+      if (!quill || !documentId || !isDocumentLoaded) return;
+
+      try {
+        setIsSaving(true);
+        if (!quiet) setSaveStatus("Saving");
+        const content = quill.getContents();
+
+        if (socket?.connected) {
+          socket.emit("save-document", { documentId, content });
+        }
+
+        await axiosInstance.put(`/documents/${documentId}`, { content });
+        setSaveStatus("Saved");
+      } catch (error) {
+        console.error("Document save failed:", error);
+        setSaveStatus("Save failed");
+      } finally {
+        setIsSaving(false);
+      }
+    },
+    [documentId, isDocumentLoaded, socket]
+  );
+
+  useEffect(() => {
+    const socketInstance = io(BACKEND_URL, {
+      withCredentials: true,
+      transports: ["websocket", "polling"],
     });
-  }, [getEditor]);
 
-  const captureToolbarRange = useCallback(() => {
-    const quill = getEditor();
-    if (!quill) return null;
+    setSocket(socketInstance);
 
-    const range = quill.getSelection(true);
-    setSavedToolbarRange(range);
-    return range;
-  }, [getEditor]);
+    const handleConnect = () => setIsSocketConnected(true);
+    const handleDisconnect = () => setIsSocketConnected(false);
 
-  const updateToolbarSoon = useCallback(() => {
-    window.setTimeout(refreshActiveFormats, 0);
-  }, [refreshActiveFormats]);
+    socketInstance.on("connect", handleConnect);
+    socketInstance.on("disconnect", handleDisconnect);
 
-  const formatSelection = useCallback((format, value) => {
-    const quill = getEditor();
+    return () => {
+      socketInstance.off("connect", handleConnect);
+      socketInstance.off("disconnect", handleDisconnect);
+      socketInstance.disconnect();
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const waitForEditor = () =>
+      new Promise((resolve) => {
+        const check = () => {
+          const quill = safeGetEditor(quillRef);
+          if (quill || cancelled) {
+            resolve(quill);
+            return;
+          }
+          window.setTimeout(check, 50);
+        };
+        check();
+      });
+
+    const loadDocument = async () => {
+      setIsDocumentLoaded(false);
+      setLoadError("");
+      setSaveStatus("Loading");
+
+      const quill = await waitForEditor();
+      if (!quill || cancelled) return;
+
+      quill.enable(false);
+
+      try {
+        const response = await axiosInstance.get(`/documents/${documentId}`);
+        if (cancelled) return;
+
+        const document = response.data.document;
+        setDocumentTitle(document?.title || "Untitled Document");
+        setEditorContent(quill, document?.content);
+        window.requestAnimationFrame(() => decorateEditorObjects(quill.root));
+        quill.history.clear();
+        quill.enable(true);
+        hasLoadedRef.current = true;
+        setIsDocumentLoaded(true);
+        setSaveStatus("Saved");
+      } catch (error) {
+        console.error("Document load failed:", error);
+        if (cancelled) return;
+        quill.enable(false);
+        const status = error.response?.status;
+        if (status === 403) setLoadError("You are not authorized to open this document.");
+        else if (status === 404) setLoadError("Document not found.");
+        else setLoadError("Unable to load this document. Check that the backend is running.");
+        setSaveStatus("Load failed");
+      }
+    };
+
+    loadDocument();
+
+    return () => {
+      cancelled = true;
+      hasLoadedRef.current = false;
+    };
+  }, [documentId]);
+
+  useEffect(() => {
+    if (!socket || !documentId) return;
+
+    socket.emit("join-document", documentId);
+
+    const handleLoadDocument = (document) => {
+      const quill = safeGetEditor(quillRef);
+      if (!quill || hasLoadedRef.current) return;
+
+      setDocumentTitle(document?.title || "Untitled Document");
+      setEditorContent(quill, document?.content);
+      window.requestAnimationFrame(() => decorateEditorObjects(quill.root));
+      quill.history.clear();
+      quill.enable(true);
+      hasLoadedRef.current = true;
+      setIsDocumentLoaded(true);
+      setSaveStatus("Saved");
+    };
+
+    const handleReceiveChanges = (delta) => {
+      const quill = safeGetEditor(quillRef);
+      if (!quill) return;
+      quill.updateContents(delta, "silent");
+      window.requestAnimationFrame(() => decorateEditorObjects(quill.root));
+    };
+
+    const handleActiveUsers = (users = []) => {
+      setActiveUsers(Array.isArray(users) ? users : []);
+    };
+
+    const handleTyping = (payload) => {
+      const username = typeof payload === "string" ? payload : payload?.username;
+      if (!username || username === user?.username) return;
+      setTypingUser(username);
+    };
+
+    const handleStopTyping = (payload) => {
+      const username = typeof payload === "string" ? payload : payload?.username;
+      if (!username || username === user?.username) return;
+      setTypingUser("");
+    };
+
+    const handleDocumentNotFound = () => setLoadError("Document not found.");
+    const handleNotAuthorized = () => setLoadError("You are not authorized to open this document.");
+
+    socket.on("load-document", handleLoadDocument);
+    socket.on("receive-changes", handleReceiveChanges);
+    socket.on("active-users", handleActiveUsers);
+    socket.on("typing", handleTyping);
+    socket.on("user-typing", handleTyping);
+    socket.on("stop-typing", handleStopTyping);
+    socket.on("user-stop-typing", handleStopTyping);
+    socket.on("document-not-found", handleDocumentNotFound);
+    socket.on("not-authorized", handleNotAuthorized);
+
+    return () => {
+      socket.off("load-document", handleLoadDocument);
+      socket.off("receive-changes", handleReceiveChanges);
+      socket.off("active-users", handleActiveUsers);
+      socket.off("typing", handleTyping);
+      socket.off("user-typing", handleTyping);
+      socket.off("stop-typing", handleStopTyping);
+      socket.off("user-stop-typing", handleStopTyping);
+      socket.off("document-not-found", handleDocumentNotFound);
+      socket.off("not-authorized", handleNotAuthorized);
+    };
+  }, [documentId, socket, user?.username]);
+
+  useEffect(() => {
+    if (!isDocumentLoaded) return undefined;
+
+    const quill = safeGetEditor(quillRef);
+    if (!quill) return undefined;
+
+    const handleTextChange = (delta, _oldDelta, source) => {
+      updateCurrentFormat();
+      if (source !== "user") return;
+
+      setSaveStatus("Unsaved");
+      socket?.emit("send-changes", delta, documentId);
+      socket?.emit("typing", { documentId, username: user?.username || "Someone" });
+
+      window.clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = window.setTimeout(() => {
+        socket?.emit("stop-typing", { documentId, username: user?.username || "Someone" });
+      }, 900);
+
+      window.clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = window.setTimeout(() => {
+        saveDocument({ quiet: true });
+      }, 1200);
+    };
+
+    const handleSelectionChange = () => updateCurrentFormat();
+    const handleBlur = () => saveDocument({ quiet: true });
+    const handleObjectDeleteKeyDown = (event) => {
+      if (!["Backspace", "Delete"].includes(event.key)) return;
+      if (isObjectDeleteTypingTarget(event.target, quill.root)) return;
+
+      if (deleteSelectedEditorObject(quill)) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    };
+
+    const handleLinkClick = (event) => {
+      const link = event.target.closest?.("a[href]");
+      if (!link || !quill.root.contains(link)) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const href = new URL(link.getAttribute("href"), window.location.href).href;
+      const openedWindow = window.open(href, "_blank", "noopener,noreferrer");
+      if (!openedWindow) {
+        window.location.href = href;
+      }
+    };
+
+    quill.on("text-change", handleTextChange);
+    quill.on("selection-change", handleSelectionChange);
+    quill.root.addEventListener("blur", handleBlur);
+    quill.root.addEventListener("click", handleLinkClick, true);
+    document.addEventListener("keydown", handleObjectDeleteKeyDown);
+
+    return () => {
+      window.clearTimeout(saveTimeoutRef.current);
+      window.clearTimeout(typingTimeoutRef.current);
+      quill.off("text-change", handleTextChange);
+      quill.off("selection-change", handleSelectionChange);
+      quill.root.removeEventListener("blur", handleBlur);
+      quill.root.removeEventListener("click", handleLinkClick, true);
+      document.removeEventListener("keydown", handleObjectDeleteKeyDown);
+    };
+  }, [documentId, isDocumentLoaded, saveDocument, socket, updateCurrentFormat, user?.username]);
+
+  useEffect(() => {
+    const handleObjectChange = () => {
+      const quill = safeGetEditor(quillRef);
+      quill?.update("silent");
+      setSaveStatus("Unsaved");
+      window.clearTimeout(saveTimeoutRef.current);
+      saveTimeoutRef.current = window.setTimeout(() => saveDocument({ quiet: true }), 800);
+    };
+
+    const handleDocumentClick = (event) => {
+      if (!event.target.closest?.(".ql-editor-object")) {
+        document.querySelectorAll(".ql-editor-object.is-selected").forEach((node) => node.classList.remove("is-selected"));
+      }
+    };
+
+    window.addEventListener("editor-object-change", handleObjectChange);
+    document.addEventListener("click", handleDocumentClick);
+
+    return () => {
+      window.removeEventListener("editor-object-change", handleObjectChange);
+      document.removeEventListener("click", handleDocumentClick);
+    };
+  }, [saveDocument]);
+
+  const applyFormatting = useCallback((format, value) => {
+    const quill = quillRef.current?.getEditor();
+    if (!quill) return;
+    quill.focus();
+    quill.format(format, value || false, "user");
+    updateCurrentFormat();
+  }, [updateCurrentFormat]);
+
+  const handleUndo = () => {
+    const quill = quillRef.current?.getEditor();
+    if (!quill) return;
+    quill.history.undo();
+  };
+
+  const handleRedo = () => {
+    const quill = quillRef.current?.getEditor();
+    if (!quill) return;
+    quill.history.redo();
+  };
+
+  const handleManualSave = () => {
+    saveDocument();
+  };
+
+  const handleAlign = (value) => {
+    applyFormatting("align", value === "left" ? false : value);
+  };
+
+  const handleList = (value) => {
+    const quill = quillRef.current?.getEditor();
+    if (!quill) return;
+    const isActive = quill.getFormat().list === value;
+    quill.format("list", isActive ? false : value, "user");
+    updateCurrentFormat();
+  };
+
+  const handleFontChange = (value) => {
+    applyFormatting("font", value);
+  };
+
+  const handleSizeChange = (value) => {
+    applyFormatting("size", value);
+  };
+
+  const handleHeaderChange = (value) => {
+    applyFormatting("header", value ? Number(value) : false);
+  };
+
+  const handleClearFormatting = () => {
+    const quill = quillRef.current?.getEditor();
     if (!quill) return;
 
-    quill.focus();
-    quill.format(format, value, 'user');
-    updateToolbarSoon();
-  }, [getEditor, updateToolbarSoon]);
-
-  const handleToolbarColor = useCallback((format, value) => {
-    formatSelection(format, value || false);
-  }, [formatSelection]);
-
-  const handleClearFormatting = useCallback(() => {
-    const quill = getEditor();
-    if (!quill) return;
-
-    quill.focus();
     const range = quill.getSelection(true);
     if (!range) return;
 
     if (range.length > 0) {
-      quill.removeFormat(range.index, range.length, 'user');
+      quill.removeFormat(range.index, range.length, "user");
     } else {
-      ["bold", "italic", "underline", "strike", "color", "background", "font", "size", "link", "header", "align", "list"].forEach((format) => {
-        quill.format(format, false, 'user');
-      });
+      const [line, offset] = quill.getLine(range.index);
+      const lineIndex = quill.getIndex(line);
+      quill.removeFormat(lineIndex, Math.max(line.length() - offset, 1), "user");
     }
 
-    updateToolbarSoon();
-  }, [getEditor, updateToolbarSoon]);
+    updateCurrentFormat();
+  };
 
-  const toggleLinkPopover = useCallback(() => {
-    const quill = getEditor();
-    if (quill) {
+  const openLinkModal = () => {
+    const quill = quillRef.current?.getEditor();
+    if (!quill) return;
+
+    const range = quill.getSelection(true);
+    const selectedText = range?.length ? quill.getText(range.index, range.length) : "";
+
+    setLinkRange(range);
+    setLinkText(selectedText.trim());
+    setLinkUrl("");
+    setLinkError("");
+    setIsLinkModalOpen(true);
+  };
+
+  const handleInsertLink = () => {
+    const quill = quillRef.current?.getEditor();
+    if (!quill) return;
+
+    const text = linkText.trim();
+    const rawUrl = linkUrl.trim();
+    if (!text) {
+      setLinkError("Enter the text to display.");
+      return;
+    }
+    if (!rawUrl) {
+      setLinkError("Enter a URL.");
+      return;
+    }
+
+    const url = /^https?:\/\//i.test(rawUrl) ? rawUrl : `https://${rawUrl}`;
+    const range = linkRange || quill.getSelection(true) || { index: quill.getLength() - 1, length: 0 };
+    const index = range.index;
+
+    quill.focus();
+    if (range.length > 0) {
+      quill.deleteText(index, range.length, "user");
+    }
+    quill.insertText(index, text, "link", url, "user");
+    quill.setSelection(index + text.length, 0, "silent");
+
+    setIsLinkModalOpen(false);
+    setLinkText("");
+    setLinkUrl("");
+    setLinkError("");
+    setLinkRange(null);
+  };
+
+  const handleInsertImageUpload = (event) => {
+    const quill = quillRef.current?.getEditor();
+    const file = event.target.files?.[0];
+    if (!quill || !file) return;
+    setMediaMessage("");
+
+    if (file.size > MAX_IMAGE_SIZE) {
+      setMediaMessage(`Image is too large (${formatFileSize(file.size)}). Please choose an image under ${formatFileSize(MAX_IMAGE_SIZE)}.`);
+      event.target.value = "";
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
       const range = quill.getSelection(true);
-      const formatsAtRange = range ? quill.getFormat(range) : {};
-      setSavedToolbarRange(range);
-      setLinkUrl(typeof formatsAtRange.link === 'string' ? formatsAtRange.link : '');
+      const index = range ? range.index : Math.max(quill.getLength() - 1, 0);
+      quill.insertEmbed(index, "image", event.target.result, "user");
+      quill.insertText(index + 1, "\n", "user");
+      quill.setSelection(index + 2, 0, "silent");
+      saveDocument({ quiet: true });
+    };
+    reader.onerror = () => {
+      setMediaMessage("Unable to read this image. Please try another file.");
+    };
+    reader.readAsDataURL(file);
+    event.target.value = "";
+  };
+
+  const handleInsertVideoUpload = (event) => {
+    const quill = quillRef.current?.getEditor();
+    const file = event.target.files?.[0];
+    if (!quill || !file) return;
+    setMediaMessage("");
+
+    if (file.size > MAX_VIDEO_SIZE) {
+      setMediaMessage(`Video is too large (${formatFileSize(file.size)}). Please choose a video under ${formatFileSize(MAX_VIDEO_SIZE)}.`);
+      event.target.value = "";
+      return;
     }
 
-    setIsImagePopoverOpen(false);
-    setIsLinkPopoverOpen((isOpen) => !isOpen);
-  }, [getEditor]);
+    const reader = new FileReader();
+    reader.onload = (readerEvent) => {
+      const range = quill.getSelection(true);
+      const index = range ? range.index : Math.max(quill.getLength() - 1, 0);
+      quill.clipboard.dangerouslyPasteHTML(index, getVideoHtml(readerEvent.target.result), "user");
+      quill.setSelection(index + 2, 0, "silent");
+      window.requestAnimationFrame(() => decorateEditorObjects(quill.root));
+      saveDocument({ quiet: true });
+    };
+    reader.onerror = () => {
+      setMediaMessage("Unable to read this video. Please try another file.");
+    };
+    reader.readAsDataURL(file);
+    event.target.value = "";
+  };
 
-  const toggleImagePopover = useCallback(() => {
-    captureToolbarRange();
-    setImageUrl('');
-    setIsLinkPopoverOpen(false);
-    setIsImagePopoverOpen((isOpen) => !isOpen);
-  }, [captureToolbarRange]);
+  const handleShapeInsert = (shapeType) => {
+    const quill = quillRef.current?.getEditor();
+    if (!quill || !shapeType) return;
 
-  const applyLink = useCallback((event) => {
-    event.preventDefault();
-    const quill = getEditor();
+    const range = quill.getSelection(true);
+    const index = range ? range.index : Math.max(quill.getLength() - 1, 0);
+    quill.clipboard.dangerouslyPasteHTML(index, getShapeHtml(shapeType), "user");
+    quill.setSelection(index + 2, 0, "silent");
+    window.requestAnimationFrame(() => decorateEditorObjects(quill.root));
+    saveDocument({ quiet: true });
+  };
+
+  const handleInsertTextBox = () => {
+    const quill = quillRef.current?.getEditor();
     if (!quill) return;
 
-    const range = savedToolbarRange || quill.getSelection(true);
-    if (!range) return;
-
-    const url = linkUrl.trim();
     quill.focus();
+    const range = quill.getSelection(true);
+    const index = range ? range.index : Math.max(quill.getLength() - 1, 0);
+    const bounds = quill.getBounds(index);
+    const maxLeft = Math.max(quill.root.clientWidth - TEXT_BOX_DEFAULTS.width - 24, 24);
+    const left = clamp(bounds?.left || TEXT_BOX_DEFAULTS.left, 24, maxLeft);
+    const top = Math.max((bounds?.top || 48) + (bounds?.height || 24) + 12, 32);
 
-    if (!url) {
-      if (range.length > 0) quill.formatText(range.index, range.length, 'link', false, 'user');
-    } else if (range.length > 0) {
-      quill.formatText(range.index, range.length, 'link', url, 'user');
-      quill.setSelection(range.index + range.length, 0, 'silent');
-    } else {
-      quill.insertText(range.index, url, 'link', url, 'user');
-      quill.setSelection(range.index + url.length, 0, 'silent');
+    if (range?.length > 0) {
+      quill.deleteText(index, range.length, "user");
     }
 
-    setIsLinkPopoverOpen(false);
-    setLinkUrl('');
-    updateToolbarSoon();
-  }, [getEditor, linkUrl, savedToolbarRange, updateToolbarSoon]);
+    quill.insertEmbed(
+      index,
+      "text-box",
+      {
+        ...TEXT_BOX_DEFAULTS,
+        left,
+        top,
+      },
+      "user"
+    );
+    quill.insertText(index + 1, "\n", "user");
+    quill.setSelection(index + 2, 0, "silent");
 
-  const applyImageUrl = useCallback((event) => {
-    event.preventDefault();
-    const quill = getEditor();
-    const url = imageUrl.trim();
-    if (!quill || !url) return;
+    window.requestAnimationFrame(() => {
+      decorateEditorObjects(quill.root);
+      const textBoxes = quill.root.querySelectorAll(".ql-text-box-wrapper");
+      const latestBox = textBoxes[textBoxes.length - 1];
+      latestBox?.classList.add("is-selected");
+      latestBox?.querySelector("[data-text-box-content]")?.focus();
+    });
+    saveDocument({ quiet: true });
+  };
 
-    quill.focus();
-    const range = savedToolbarRange || quill.getSelection(true);
-    const index = range ? range.index : Math.max(0, quill.getLength() - 1);
-    quill.insertEmbed(index, 'custom-image', { src: url }, 'user');
-    quill.setSelection(index + 1, 0, 'silent');
-    setIsImagePopoverOpen(false);
-    setImageUrl('');
-    updateToolbarSoon();
-  }, [getEditor, imageUrl, savedToolbarRange, updateToolbarSoon]);
+  const openVersionHistory = async () => {
+    setIsVersionModalOpen(true);
+    setVersionMessage("");
+    setVersionToRestore(null);
 
-  // Basic socket connection (lightweight)
-  useEffect(() => {
-    const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:4000';
-    const s = io(backendUrl, { withCredentials: true });
-    setSocket(s);
-    setIsSocketConnected(!!s.connected);
-    const onConnect = () => setIsSocketConnected(true);
-    const onDisconnect = () => {
-      setIsSocketConnected(false);
-      setTypingUser('');
-    };
-    s.on('connect', onConnect); s.on('disconnect', onDisconnect);
-    return () => { s.off('connect', onConnect); s.off('disconnect', onDisconnect); s.disconnect(); };
-  }, []);
+    try {
+      setVersionLoading(true);
+      const data = await getVersions(documentId);
+      setVersions(dedupeVersions(data));
+    } catch (error) {
+      setVersionMessage(error.response?.data?.message || "Unable to load version history.");
+    } finally {
+      setVersionLoading(false);
+    }
+  };
 
-  useEffect(() => {
-    const quill = getEditor();
-    if (!quill || documentError) return;
+  const closeVersionHistory = () => {
+    setIsVersionModalOpen(false);
+    setVersionMessage("");
+    setVersionToRestore(null);
+  };
 
-    const updateFormats = () => refreshActiveFormats();
-    quill.on('selection-change', updateFormats);
-    quill.on('text-change', updateFormats);
-    refreshActiveFormats();
+  const handleRestoreVersion = async () => {
+    if (!versionToRestore) return;
 
-    return () => {
-      quill.off('selection-change', updateFormats);
-      quill.off('text-change', updateFormats);
-    };
-  }, [documentError, getEditor, refreshActiveFormats]);
-
-  // Load document once socket + quill available
-  useEffect(() => {
-    const quill = safeGetEditor(quillRef);
-    if (!socket || !quill) return;
-    quill.enable(false);
-    let didLoad = false;
-    socket.emit('join-document', documentId);
-    const onLoad = (doc) => {
-      didLoad = true;
-      setDocumentError('');
-      setDocumentTitle(doc.title || 'Untitled Document');
-      try { quill.setContents(doc.content || { ops: [] }); } catch { quill.setText(''); }
-      quill.enable(true);
-    };
-    const onDocumentError = () => {
-      didLoad = true;
-      quill.enable(false);
-      setDocumentError('Document not found or you do not have access.');
-    };
-    socket.once('load-document', onLoad);
-    socket.once('document-not-found', onDocumentError);
-    socket.once('not-authorized', onDocumentError);
-    const fallback = setTimeout(() => { if (!didLoad) quill.enable(true); }, 2000);
-    return () => {
-      socket.off('load-document', onLoad);
-      socket.off('document-not-found', onDocumentError);
-      socket.off('not-authorized', onDocumentError);
-      clearTimeout(fallback);
-    };
-  }, [socket, documentId]);
-
-  useEffect(() => {
-    const quill = getEditor();
-    if (!socket || !quill) return;
-
-    const receiveChangesHandler = (delta) => {
-      quill.updateContents(delta, 'api');
-    };
-
-    socket.on('receive-changes', receiveChangesHandler);
-    return () => { socket.off('receive-changes', receiveChangesHandler); };
-  }, [getEditor, socket]);
-
-  useEffect(() => {
-    if (!socket) return;
-
-    const typingHandler = ({ username }) => {
-      if (username && username !== user?.username) {
-        setTypingUser(`${username} is typing...`);
-      }
-    };
-    const stoppedTypingHandler = ({ username }) => {
-      if (!username || username === user?.username) return;
-      setTypingUser('');
-    };
-
-    socket.on('user-typing', typingHandler);
-    socket.on('user-stopped-typing', stoppedTypingHandler);
-
-    return () => {
-      socket.off('user-typing', typingHandler);
-      socket.off('user-stopped-typing', stoppedTypingHandler);
-    };
-  }, [socket, user?.username]);
-
-  useEffect(() => {
-    if (!socket) return;
-
-    const activeUsersHandler = (users) => {
-      const normalizedUsers = Array.isArray(users)
-        ? users
-        : users?.activeUsers || users?.users || [];
-      setActiveUsers(normalizedUsers);
-    };
-
-    socket.on('active-users', activeUsersHandler);
-    return () => { socket.off('active-users', activeUsersHandler); };
-  }, [socket]);
-
-  // Send changes (simplified)
-  useEffect(() => {
-    if (!socket || !quillRef.current) return;
-    const quill = safeGetEditor(quillRef);
+    const quill = quillRef.current?.getEditor();
     if (!quill) return;
 
-    let typingTimeout;
-    let saveTimeout;
+    try {
+      setVersionLoading(true);
+      setVersionMessage("");
+      const response = await restoreVersion(versionToRestore._id);
+      const restoredContent = response.document?.content || versionToRestore.content;
 
-    const doSave = async () => {
-      try {
-        setIsSaving(true);
-        const content = quill.getContents();
-        await axiosInstance.put(`/documents/${documentId}`, { content });
-      } catch (err) {
-        console.error('autosave failed', err);
-      } finally {
-        setIsSaving(false);
-      }
-    };
+      quill.focus();
+      applyRestoredContent(quill, restoredContent);
+      window.requestAnimationFrame(() => decorateEditorObjects(quill.root));
+      quill.history.clear();
+      setSaveStatus("Saved");
+      setVersionMessage(response.message || "Version restored.");
+      setVersionToRestore(null);
 
-    const textChangeHandler = (delta, oldDelta, source) => {
-      if (source !== 'user') return;
-      // broadcast changes to other clients
-      socket.emit('send-changes', delta, documentId);
-      socket.emit('typing', { documentId, username: user?.username });
+      const data = await getVersions(documentId);
+      setVersions(dedupeVersions(data));
+    } catch (error) {
+      setVersionMessage(error.response?.data?.message || "Failed to restore this version.");
+    } finally {
+      setVersionLoading(false);
+    }
+  };
 
-      // reset typing indicator timer
-      clearTimeout(typingTimeout);
-      typingTimeout = setTimeout(() => { socket.emit('stop-typing', { documentId, username: user?.username }); }, 800);
-
-      // debounce autosave: save after 2s of inactivity
-      clearTimeout(saveTimeout);
-      saveTimeout = setTimeout(() => { doSave(); }, 2000);
-    };
-
-    quill.on('text-change', textChangeHandler);
-    // also save when editor loses focus
-    const blurHandler = () => { clearTimeout(saveTimeout); doSave(); };
-    quill.root.addEventListener('blur', blurHandler);
-
-    return () => {
-      clearTimeout(typingTimeout); clearTimeout(saveTimeout);
-      quill.off('text-change', textChangeHandler);
-      try { quill.root.removeEventListener('blur', blurHandler); } catch { /* editor root may already be detached */ }
-    };
-  }, [socket, documentId, user]);
-
-  // Title handler
   const handleTitleSubmit = async () => {
-    if (!titleInput.trim() || titleInput === documentTitle) {
+    const nextTitle = titleInput.trim() || "Untitled Document";
+    if (nextTitle === documentTitle) {
       setIsEditingTitle(false);
       return;
     }
+
     try {
-      await renameDocument(documentId, titleInput);
-      setDocumentTitle(titleInput);
-      setIsEditingTitle(false);
-    } catch (err) {
-      console.error("Failed to rename document", err);
+      await renameDocument(documentId, nextTitle);
+      setDocumentTitle(nextTitle);
+    } catch (error) {
+      console.error("Failed to rename document:", error);
+    } finally {
       setIsEditingTitle(false);
     }
   };
 
-  const openShareModal = () => {
+  const openShareModal = async () => {
     setIsShareModalOpen(true);
-    setShareMessage('');
-    setCopyMessage('');
+    setShareMessage("");
+    setCopyMessage("");
+
+    try {
+      const data = await getCollaborators(documentId);
+      setCollaboratorsList(data.collaborators || []);
+    } catch (error) {
+      console.error("Failed to load collaborators:", error);
+    }
   };
 
   const closeShareModal = () => {
     setIsShareModalOpen(false);
-    setCopyMessage('');
-    setShareMessage('');
+    setCollaboratorEmail("");
+    setShareMessage("");
+    setCopyMessage("");
   };
 
   const handleCopyLink = async () => {
     try {
       await navigator.clipboard.writeText(window.location.href);
-      setCopyMessage('Link copied');
-      setTimeout(() => setCopyMessage(''), 2500);
+      setCopyMessage("Link copied");
+      window.setTimeout(() => setCopyMessage(""), 2200);
     } catch {
-      setCopyMessage('Unable to copy link');
+      setCopyMessage("Copy failed");
     }
   };
 
-  const handleAddCollaborator = async (event) => {
-    event?.preventDefault();
-    const email = collaboratorEmail.trim();
-
-    if (!email) {
-      setShareMessage('Enter an email address.');
+  const handleAddCollaborator = async () => {
+    if (!collaboratorEmail.trim()) {
+      setShareMessage("Enter an email address.");
       return;
     }
 
     try {
       setShareLoading(true);
-      setShareMessage('');
-      const response = await addCollaborator(documentId, email);
-      setShareMessage(response.message || 'Collaborator added');
-      setCollaboratorEmail('');
-    } catch (err) {
-      setShareMessage(err?.response?.data?.message || err?.response?.data?.error || 'Could not add collaborator');
+      setShareMessage("");
+      const response = await addCollaborator(documentId, collaboratorEmail.trim());
+      setShareMessage(response.message || "Invitation sent.");
+      setCollaboratorEmail("");
+      const data = await getCollaborators(documentId);
+      setCollaboratorsList(data.collaborators || []);
+    } catch (error) {
+      setShareMessage(error.response?.data?.message || "Unable to add collaborator.");
     } finally {
       setShareLoading(false);
     }
   };
 
-  const onUndo = () => {
-    const quill = getEditor();
-    if (!quill) return;
-    quill.history.undo();
-    updateToolbarSoon();
+  const renderActiveUserName = (activeUser) => {
+    if (typeof activeUser === "string") return activeUser;
+    return activeUser?.username || activeUser?.email || "Collaborator";
   };
 
-  const onRedo = () => {
-    const quill = getEditor();
-    if (!quill) return;
-    quill.history.redo();
-    updateToolbarSoon();
+  const formatVersionDate = (dateValue) => {
+    const date = new Date(dateValue);
+    if (Number.isNaN(date.getTime())) return "Unknown date";
+    return date.toLocaleString([], {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   };
 
-  const onSave = async () => {
-    const quill = getEditor();
-    if (!quill) return;
-
-    try {
-      setIsSaving(true);
-      const content = quill.getContents();
-      await axiosInstance.put(`/documents/${documentId}`, { content });
-    } catch (err) {
-      console.error('save failed', err);
-    } finally {
-      setIsSaving(false);
-    }
-  };
+  const saveStatusLabel = isSaving ? "Saving..." : saveStatus;
+  const alignmentButtons = [
+    { value: "left", label: "Align left", icon: AlignLeft },
+    { value: "center", label: "Align center", icon: AlignCenter },
+    { value: "right", label: "Align right", icon: AlignRight },
+    { value: "justify", label: "Align justify", icon: AlignJustify },
+  ];
 
   return (
-    <div className="h-screen flex flex-col bg-[#f8fafc] font-sans selection:bg-indigo-100 selection:text-indigo-900 overflow-hidden">
-      {/* Top Navigation Bar */}
-      <header className="bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between shrink-0 shadow-sm z-20">
-        <div className="flex items-center gap-5">
-          <button 
-            onClick={() => navigate('/dashboard')}
-            className="p-2.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all border border-transparent hover:border-indigo-100"
-            title="Back to Dashboard"
+    <div className="flex h-screen flex-col overflow-hidden bg-slate-100 text-slate-900">
+      <header className="z-30 flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white/95 px-3 py-2.5 shadow-sm backdrop-blur sm:px-5">
+        <div className="flex min-w-0 items-center gap-3">
+          <button
+            type="button"
+            onClick={() => navigate("/dashboard")}
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 text-slate-600 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+            title="Back"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+            <span className="text-2xl leading-none">&lsaquo;</span>
           </button>
-          
-          <div className="flex flex-col">
+
+          <div className="min-w-0">
             {isEditingTitle ? (
               <input
                 autoFocus
-                className="text-xl font-bold text-slate-800 bg-slate-50 border-b-2 border-indigo-500 focus:outline-none px-1 py-0.5 w-52 transition-colors"
                 value={titleInput}
-                onChange={(e) => setTitleInput(e.target.value)}
+                onChange={(event) => setTitleInput(event.target.value)}
                 onBlur={handleTitleSubmit}
-                onKeyDown={(e) => e.key === 'Enter' && handleTitleSubmit()}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") handleTitleSubmit();
+                  if (event.key === "Escape") setIsEditingTitle(false);
+                }}
+                className="w-52 rounded-lg border border-indigo-300 px-2 py-1 text-lg font-semibold outline-none ring-4 ring-indigo-100 sm:w-80"
               />
             ) : (
-              <h1 
-                onClick={() => { setIsEditingTitle(true); setTitleInput(documentTitle); }}
-                className="text-xl font-bold text-slate-800 cursor-pointer hover:bg-slate-100 px-2 py-0.5 rounded transition-colors border-b-2 border-transparent whitespace-nowrap overflow-hidden text-ellipsis max-w-md"
-                title={documentTitle || 'Untitled Document'}
+              <button
+                type="button"
+                onClick={() => {
+                  setTitleInput(documentTitle);
+                  setIsEditingTitle(true);
+                }}
+                className="block max-w-[46vw] truncate rounded-lg px-2 py-1 text-left text-lg font-bold text-slate-950 transition hover:bg-slate-100 sm:max-w-md"
+                title={documentTitle}
               >
-                {documentTitle || 'Untitled Document'}
-              </h1>
+                {documentTitle}
+              </button>
             )}
-            
-            {/* Connection Status */}
-            <div className="flex items-center gap-2 text-xs text-slate-500 mt-1 px-2 -ml-2 font-medium">
-              <span className="flex items-center gap-1.5">
-                <span className="relative flex h-2 w-2">
-                  {isSocketConnected && <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>}
-                  <span className={`relative inline-flex rounded-full h-2 w-2 ${isSocketConnected ? 'bg-emerald-500' : 'bg-rose-500'}`}></span>
-                </span>
-                {isSaving ? 'Saving...' : (isSocketConnected ? 'Saved' : 'Working Offline')}
+
+            <div className="flex flex-wrap items-center gap-2 px-2 text-xs">
+              <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 font-semibold ${saveStatusLabel === "Saved" ? "bg-emerald-50 text-emerald-700" : "bg-indigo-50 text-indigo-700"}`}>
+                <span className={`h-1.5 w-1.5 rounded-full ${isSocketConnected ? "bg-emerald-500" : "bg-amber-500"}`} />
+                {saveStatusLabel}
               </span>
-              {typingUser && <span className="text-indigo-500">{typingUser}</span>}
+              {typingUser && <span className="hidden font-semibold text-indigo-700 sm:inline">{typingUser} is typing...</span>}
             </div>
           </div>
         </div>
 
-        <div className="flex items-center">
+        <div className="flex shrink-0 items-center gap-2">
+          <div className="hidden items-center gap-1 md:flex">
+            {activeUsers.slice(0, 3).map((activeUser, index) => (
+              <span key={`${renderActiveUserName(activeUser)}-${index}`} className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-100 text-xs font-bold text-indigo-700 ring-2 ring-white">
+                {renderActiveUserName(activeUser).slice(0, 1).toUpperCase()}
+              </span>
+            ))}
+            <span className="ml-1 text-xs font-semibold text-slate-500">
+              {activeUsers.length > 0 ? `${activeUsers.length} online` : "Solo editing"}
+            </span>
+          </div>
           <button
+            type="button"
+            onClick={openVersionHistory}
+            disabled={!isDocumentLoaded}
+            className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-700 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <History size={16} strokeWidth={2.2} aria-hidden="true" />
+            <span className="hidden sm:inline">Versions</span>
+          </button>
+          <button
+            type="button"
             onClick={openShareModal}
-            className="inline-flex items-center justify-center rounded-full bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+            className="rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 px-4 py-2.5 text-sm font-bold text-white shadow-lg shadow-indigo-500/25 transition hover:from-indigo-700 hover:to-purple-700"
           >
             Share
           </button>
         </div>
       </header>
 
-      {/* Editor Main Area */}
-      <main className="flex-1 flex flex-col relative bg-[#f1f3f4]">
-        <CustomToolbar
-          activeFormats={activeFormats}
-          imageUrl={imageUrl}
-          isImagePopoverOpen={isImagePopoverOpen}
-          isLinkPopoverOpen={isLinkPopoverOpen}
-          linkUrl={linkUrl}
-          onApplyImageUrl={applyImageUrl}
-          onApplyLink={applyLink}
-          onClearFormatting={handleClearFormatting}
-          onColor={handleToolbarColor}
-          onFormat={formatSelection}
-          onImagePopoverToggle={toggleImagePopover}
-          onLinkPopoverToggle={toggleLinkPopover}
-          onRedo={onRedo}
-          onSave={onSave}
-          onSetImageUrl={setImageUrl}
-          onSetLinkUrl={setLinkUrl}
-          onUndo={onUndo}
-        />
-        
-        <div className="flex-1 overflow-y-auto w-full flex justify-center pb-24 pt-8 custom-scrollbar">
-          {documentError ? (
-            <div className="mt-20 w-full max-w-md rounded-lg border border-rose-200 bg-white p-6 text-center shadow-sm">
-              <h2 className="text-base font-semibold text-slate-900">Unable to open document</h2>
-              <p className="mt-2 text-sm text-slate-600">{documentError}</p>
-              <button
-                onClick={() => navigate('/dashboard')}
-                className="mt-5 rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-slate-700"
-              >
-                Back to dashboard
-              </button>
-            </div>
-          ) : (
-            <ReactQuill ref={quillRef} theme="snow" className="w-full max-w-4xl shadow-sm rounded-xl overflow-hidden bg-white min-h-screen" modules={modules} formats={formats} placeholder="Start typing your document..." />
-          )}
+      <div className="sticky top-0 z-20 shrink-0 border-b border-slate-200 bg-white/95 backdrop-blur">
+        <div className="flex flex-nowrap items-center justify-start gap-1 overflow-x-auto px-3 py-2 xl:justify-center">
+          <ToolbarButton icon={Undo2} label="Undo" onClick={handleUndo} disabled={!isDocumentLoaded} />
+          <ToolbarButton icon={Redo2} label="Redo" onClick={handleRedo} disabled={!isDocumentLoaded} />
+          <ToolbarButton icon={Save} label="Save" onClick={handleManualSave} disabled={!isDocumentLoaded} />
+
+          <ToolbarSeparator />
+
+          <select
+            className="h-8 shrink-0 rounded-lg border border-slate-200 bg-white px-2 text-sm font-medium outline-none transition hover:border-indigo-200 hover:bg-indigo-50 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+            value={currentFormat.header || ""}
+            onChange={(event) => handleHeaderChange(event.target.value)}
+            disabled={!isDocumentLoaded}
+            title="Paragraph style"
+          >
+            <option value="">Normal text</option>
+            <option value="1">Heading 1</option>
+            <option value="2">Heading 2</option>
+            <option value="3">Heading 3</option>
+          </select>
+
+          <select
+            className="h-8 shrink-0 rounded-lg border border-slate-200 bg-white px-2 text-sm font-medium outline-none transition hover:border-indigo-200 hover:bg-indigo-50 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+            value={currentFormat.font || ""}
+            onChange={(event) => handleFontChange(event.target.value)}
+            disabled={!isDocumentLoaded}
+            title="Font family"
+          >
+            {FONT_OPTIONS.map((font) => (
+              <option key={font.value || "default"} value={font.value}>
+                {font.label}
+              </option>
+            ))}
+          </select>
+
+          <select
+            className="h-8 shrink-0 rounded-lg border border-slate-200 bg-white px-2 text-sm font-medium outline-none transition hover:border-indigo-200 hover:bg-indigo-50 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+            value={currentFormat.size || "16px"}
+            onChange={(event) => handleSizeChange(event.target.value)}
+            disabled={!isDocumentLoaded}
+            title="Font size"
+          >
+            {SIZE_OPTIONS.map((size) => (
+              <option key={size} value={size}>
+                {size}
+              </option>
+            ))}
+          </select>
+
+          <ToolbarSeparator />
+
+          <ToolbarButton icon={Bold} label="Bold" active={currentFormat.bold} onClick={() => applyFormatting("bold", !currentFormat.bold)} disabled={!isDocumentLoaded} />
+          <ToolbarButton icon={Italic} label="Italic" active={currentFormat.italic} onClick={() => applyFormatting("italic", !currentFormat.italic)} disabled={!isDocumentLoaded} />
+          <ToolbarButton icon={Underline} label="Underline" active={currentFormat.underline} onClick={() => applyFormatting("underline", !currentFormat.underline)} disabled={!isDocumentLoaded} />
+          <ToolbarButton icon={Strikethrough} label="Strikethrough" active={currentFormat.strike} onClick={() => applyFormatting("strike", !currentFormat.strike)} disabled={!isDocumentLoaded} />
+
+          <label className="relative flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-slate-700 transition hover:bg-indigo-50 hover:text-indigo-700 has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-40" title="Text color" aria-label="Text color">
+            <Type size={17} strokeWidth={2.2} aria-hidden="true" />
+            <span className="absolute bottom-1 h-0.5 w-4 rounded-full" style={{ backgroundColor: currentFormat.color || "#111827" }} />
+            <input
+              type="color"
+              className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+              value={currentFormat.color || "#111827"}
+              onChange={(event) => applyFormatting("color", event.target.value)}
+              disabled={!isDocumentLoaded}
+            />
+          </label>
+          <label className="relative flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-lg text-slate-700 transition hover:bg-indigo-50 hover:text-indigo-700 has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-40" title="Highlight color" aria-label="Highlight color">
+            <PaintBucket size={17} strokeWidth={2.2} aria-hidden="true" />
+            <span className="absolute bottom-1 h-0.5 w-4 rounded-full" style={{ backgroundColor: currentFormat.background || "#fef3c7" }} />
+            <input
+              type="color"
+              className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+              value={currentFormat.background || "#ffffff"}
+              onChange={(event) => applyFormatting("background", event.target.value)}
+              disabled={!isDocumentLoaded}
+            />
+          </label>
+
+          <ToolbarSeparator />
+
+          {alignmentButtons.map(({ value, label, icon }) => (
+            <ToolbarButton
+              key={value}
+              icon={icon}
+              label={label}
+              active={(currentFormat.align || "left") === value}
+              onClick={() => handleAlign(value)}
+              disabled={!isDocumentLoaded}
+            />
+          ))}
+
+          <ToolbarSeparator />
+
+          <ToolbarButton icon={ListOrdered} label="Ordered list" active={currentFormat.list === "ordered"} onClick={() => handleList("ordered")} disabled={!isDocumentLoaded} />
+          <ToolbarButton icon={List} label="Bullet list" active={currentFormat.list === "bullet"} onClick={() => handleList("bullet")} disabled={!isDocumentLoaded} />
+
+          <ToolbarSeparator />
+
+          <ToolbarButton icon={LinkIcon} label="Insert link" onClick={openLinkModal} disabled={!isDocumentLoaded} />
+          <ToolbarButton icon={ImageIcon} label="Insert image" onClick={() => imageInputRef.current?.click()} disabled={!isDocumentLoaded} />
+          <ToolbarButton icon={VideoIcon} label="Insert video" onClick={() => videoInputRef.current?.click()} disabled={!isDocumentLoaded} />
+          <ToolbarButton icon={TextCursorInput} label="Insert text box" onClick={handleInsertTextBox} disabled={!isDocumentLoaded} />
+
+          <label className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 text-sm font-medium text-slate-700 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700" title="Insert shape">
+            <Shapes size={17} strokeWidth={2.2} aria-hidden="true" />
+            <select
+              className="h-full max-w-[92px] bg-transparent text-sm font-medium outline-none"
+              value=""
+              onChange={(event) => {
+                handleShapeInsert(event.target.value);
+                event.target.value = "";
+              }}
+              disabled={!isDocumentLoaded}
+              title="Insert shape"
+            >
+              <option value="">Shapes</option>
+              {SHAPE_OPTIONS.map((shape) => (
+                <option key={shape.value} value={shape.value}>
+                  {shape.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <ToolbarSeparator />
+
+          <ToolbarButton icon={Eraser} label="Clear formatting" onClick={handleClearFormatting} disabled={!isDocumentLoaded} />
+        </div>
+      </div>
+
+      <input ref={imageInputRef} type="file" accept="image/*" onChange={handleInsertImageUpload} className="hidden" />
+      <input ref={videoInputRef} type="file" accept="video/*" onChange={handleInsertVideoUpload} className="hidden" />
+
+      <main className="relative flex-1 overflow-auto bg-slate-100 px-3 py-6 sm:px-6">
+        {loadError && (
+          <div className="mx-auto mb-4 max-w-3xl rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {loadError}
+          </div>
+        )}
+        {mediaMessage && (
+          <div className="mx-auto mb-4 flex max-w-3xl items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            <span>{mediaMessage}</span>
+            <button type="button" onClick={() => setMediaMessage("")} className="rounded-md px-2 py-1 text-xs font-bold text-amber-900 hover:bg-amber-100">
+              Dismiss
+            </button>
+          </div>
+        )}
+
+        <div className="mx-auto max-w-[900px]">
+          <ReactQuill
+            ref={quillRef}
+            theme="snow"
+            readOnly={!isDocumentLoaded || Boolean(loadError)}
+            modules={modules}
+            formats={formats}
+            placeholder={isDocumentLoaded ? "Start typing your document..." : "Loading document..."}
+            className="docs-editor"
+          />
         </div>
       </main>
 
+      {isVersionModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) closeVersionHistory();
+          }}
+        >
+          <div className="flex max-h-[86vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-white/80 bg-white shadow-2xl shadow-indigo-950/20">
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+              <div>
+                <h2 className="text-lg font-semibold text-slate-900">Version history</h2>
+                <p className="text-sm text-slate-500">{documentTitle}</p>
+              </div>
+              <button type="button" onClick={closeVersionHistory} className="rounded-md px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100">
+                Close
+              </button>
+            </div>
+
+            {versionMessage && (
+              <div className={`mx-5 mt-4 rounded-lg border px-3 py-2 text-sm ${versionMessage.toLowerCase().includes("failed") || versionMessage.toLowerCase().includes("unable") ? "border-red-200 bg-red-50 text-red-700" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
+                {versionMessage}
+              </div>
+            )}
+
+            {versionToRestore && (
+              <div className="mx-5 mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
+                <p className="text-sm font-semibold text-amber-900">Restore this version?</p>
+                <p className="mt-1 text-sm text-amber-800">
+                  This will replace the current editor content with the version from {formatVersionDate(versionToRestore.createdAt)}.
+                </p>
+                <div className="mt-3 flex justify-end gap-2">
+                  <button type="button" onClick={() => setVersionToRestore(null)} className="rounded-lg px-3 py-2 text-sm font-semibold text-amber-900 hover:bg-amber-100">
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleRestoreVersion}
+                    disabled={versionLoading}
+                    className="rounded-lg bg-amber-600 px-3 py-2 text-sm font-bold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {versionLoading ? "Restoring..." : "Restore"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="min-h-0 flex-1 overflow-y-auto p-5">
+              {versionLoading && versions.length === 0 ? (
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 px-5 py-8 text-center text-sm font-medium text-slate-500">
+                  Loading saved versions...
+                </div>
+              ) : versions.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-indigo-200 bg-indigo-50/40 px-5 py-8 text-center">
+                  <p className="font-semibold text-slate-800">No saved versions yet</p>
+                  <p className="mt-1 text-sm text-slate-500">Versions appear after autosave or manual save creates document snapshots.</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {versions.map((version, index) => (
+                    <article key={version._id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm transition hover:border-indigo-200 hover:shadow-md">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3 className="text-sm font-bold text-slate-950">Version {versions.length - index}</h3>
+                            {index === 0 && <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-bold text-emerald-700 ring-1 ring-emerald-100">Latest</span>}
+                          </div>
+                          <p className="mt-1 text-sm text-slate-500">{formatVersionDate(version.createdAt)}</p>
+                          <p className="mt-1 text-xs font-medium text-slate-500">
+                            Edited by {version.editedBy?.username || version.editedBy?.email || "Unknown user"}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setVersionToRestore(version)}
+                          disabled={versionLoading}
+                          className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-bold text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          Restore
+                        </button>
+                      </div>
+                      <p className="mt-3 line-clamp-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                        {getVersionPreview(version.content)}
+                      </p>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {isShareModalOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/35 px-4 py-6 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) closeShareModal();
           }}
         >
-          <div
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="share-dialog-title"
-            className="w-full max-w-xl overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-slate-900/10"
-          >
-            <div className="flex items-start justify-between gap-4 border-b border-slate-100 px-6 py-5">
+          <div className="w-full max-w-xl overflow-hidden rounded-2xl border border-white/80 bg-white shadow-2xl shadow-indigo-950/20">
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
               <div>
-                <h2 id="share-dialog-title" className="text-lg font-semibold text-slate-900">
-                  Share "{documentTitle || 'Untitled Document'}"
-                </h2>
-                <p className="mt-1 text-sm text-slate-500">Invite collaborators or copy the document link.</p>
+                <h2 className="text-lg font-semibold text-slate-900">Share document</h2>
+                <p className="text-sm text-slate-500">{documentTitle}</p>
               </div>
-              <button
-                onClick={closeShareModal}
-                className="rounded-full p-2 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
-                aria-label="Close share dialog"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              <button type="button" onClick={closeShareModal} className="rounded-md px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100">
+                Close
               </button>
             </div>
 
-            <div className="space-y-6 px-6 py-5">
+            <div className="space-y-5 px-5 py-5">
               <section>
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <h3 className="text-sm font-semibold text-slate-800">Copy Link</h3>
-                  {copyMessage && <span className="text-xs font-medium text-emerald-600">{copyMessage}</span>}
-                </div>
+                <label className="mb-2 block text-sm font-medium text-slate-700">Copy link</label>
                 <div className="flex flex-col gap-2 sm:flex-row">
-                  <input
-                    readOnly
-                    value={typeof window !== 'undefined' ? window.location.href : ''}
-                    className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600 outline-none"
-                  />
-                  <button
-                    onClick={handleCopyLink}
-                    className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50"
-                  >
+                  <input readOnly value={currentDocumentUrl} className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-600" />
+                  <button type="button" onClick={handleCopyLink} className="rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-indigo-500/25 transition hover:from-indigo-700 hover:to-purple-700">
                     Copy Link
                   </button>
                 </div>
+                {copyMessage && <p className="mt-2 text-sm text-emerald-600">{copyMessage}</p>}
               </section>
 
               <section>
-                <div className="mb-2 flex items-center justify-between gap-3">
-                  <h3 className="text-sm font-semibold text-slate-800">Add Collaborator</h3>
-                  {shareMessage && <span className="text-xs font-medium text-slate-500">{shareMessage}</span>}
-                </div>
-                <form className="flex flex-col gap-2 sm:flex-row" onSubmit={handleAddCollaborator}>
+                <label className="mb-2 block text-sm font-medium text-slate-700">Add collaborator</label>
+                <div className="flex flex-col gap-2 sm:flex-row">
                   <input
                     type="email"
                     value={collaboratorEmail}
                     onChange={(event) => setCollaboratorEmail(event.target.value)}
-                    placeholder="email@example.com"
-                    className="min-w-0 flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                    placeholder="name@example.com"
+                    className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100"
                   />
                   <button
-                    type="submit"
+                    type="button"
+                    onClick={handleAddCollaborator}
                     disabled={shareLoading}
-                    className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-indigo-500/25 transition hover:from-indigo-700 hover:to-purple-700 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {shareLoading ? 'Adding...' : 'Add Collaborator'}
+                    {shareLoading ? "Adding..." : "Add Collaborator"}
                   </button>
-                </form>
+                </div>
+                {shareMessage && <p className="mt-2 text-sm text-slate-700">{shareMessage}</p>}
               </section>
 
               <section>
-                <h3 className="mb-3 text-sm font-semibold text-slate-800">Active collaborators</h3>
+                <h3 className="mb-2 text-sm font-medium text-slate-700">Active collaborators</h3>
                 {activeUsers.length > 0 ? (
                   <div className="flex flex-wrap gap-2">
-                    {activeUsers.map((activeUser, index) => {
-                      const name = getActiveUserName(activeUser);
-                      return (
-                        <span
-                          key={activeUser?._id || activeUser?.id || activeUser?.socketId || `${name}-${index}`}
-                          className="inline-flex items-center gap-2 rounded-full bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 ring-1 ring-emerald-100"
-                        >
-                          <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                          {name}
-                        </span>
-                      );
-                    })}
+                    {activeUsers.map((activeUser, index) => (
+                      <span key={`${renderActiveUserName(activeUser)}-${index}`} className="rounded-full bg-indigo-50 px-3 py-1 text-sm font-medium text-indigo-700 ring-1 ring-indigo-100">
+                        {renderActiveUserName(activeUser)}
+                      </span>
+                    ))}
                   </div>
                 ) : (
-                  <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-4 text-sm text-slate-500">
-                    No active collaborators
-                  </div>
+                  <p className="text-sm text-slate-500">No active collaborators online</p>
                 )}
               </section>
-            </div>
 
-            <div className="flex justify-end border-t border-slate-100 bg-slate-50 px-6 py-4">
+              {collaboratorsList.length > 0 && (
+                <section>
+                  <h3 className="mb-2 text-sm font-medium text-slate-700">People with access</h3>
+                  <div className="max-h-36 space-y-2 overflow-y-auto">
+                    {collaboratorsList.map((collaborator) => (
+                      <div key={collaborator._id || collaborator.email} className="rounded-lg border border-slate-200 px-3 py-2">
+                        <p className="text-sm font-medium text-slate-800">{collaborator.username || collaborator.email}</p>
+                        <p className="text-xs text-slate-500">{collaborator.email}</p>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isLinkModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setIsLinkModalOpen(false);
+              setLinkError("");
+            }
+          }}
+        >
+          <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-2xl">
+            <h2 className="text-lg font-semibold text-slate-900">Insert link</h2>
+            <div className="mt-4 space-y-3">
+              <label className="block text-sm font-medium text-slate-700">
+                Text
+                <input
+                  value={linkText}
+                  onChange={(event) => setLinkText(event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100"
+                />
+              </label>
+              <label className="block text-sm font-medium text-slate-700">
+                Address
+                <input
+                  value={linkUrl}
+                  onChange={(event) => setLinkUrl(event.target.value)}
+                  placeholder="https://example.com"
+                  className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100"
+                />
+              </label>
+              {linkError && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">{linkError}</p>}
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
               <button
-                onClick={closeShareModal}
-                className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-slate-700"
+                type="button"
+                onClick={() => {
+                  setIsLinkModalOpen(false);
+                  setLinkError("");
+                }}
+                className="rounded-lg px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100"
               >
-                Close
+                Cancel
+              </button>
+              <button type="button" onClick={handleInsertLink} className="rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-indigo-500/25 transition hover:from-indigo-700 hover:to-purple-700">
+                Insert
               </button>
             </div>
           </div>

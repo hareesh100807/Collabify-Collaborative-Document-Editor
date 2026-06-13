@@ -15,15 +15,13 @@
     "@tiptap/react": "^3.23.5",
     "@tiptap/starter-kit": "^3.23.5",
     "axios": "^1.16.1",
+    "lucide-react": "^1.18.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "react-quill-new": "^3.8.3",
     "react-router-dom": "^7.15.1",
     "socket.io-client": "^4.8.3",
-    "tailwindcss": "^4.3.0",
-    "y-webrtc": "^10.3.0",
-    "y-websocket": "^3.0.0",
-    "yjs": "^13.6.30"
+    "tailwindcss": "^4.3.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

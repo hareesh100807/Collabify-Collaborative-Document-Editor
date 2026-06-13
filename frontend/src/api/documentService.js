@@ -66,4 +66,14 @@ export const generateShareLink = async (documentId) => {
 export const handleShareLink = async (token) => {
   const response = await axiosInstance.get(`/share/invite/${token}`);
   return response.data;
-}
+};
+
+export const getVersions = async (documentId) => {
+  const response = await axiosInstance.get(`/versions/${documentId}`);
+  return response.data.versions || response.data;
+};
+
+export const restoreVersion = async (versionId) => {
+  const response = await axiosInstance.post(`/versions/restore/${versionId}`);
+  return response.data;
+};

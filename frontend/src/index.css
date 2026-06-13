@@ -231,7 +231,7 @@
 .ql-snow .ql-picker.ql-font .ql-picker-label[data-value="verdana"]::before,
 .ql-snow .ql-picker.ql-font .ql-picker-item[data-value="verdana"]::before {
   content: "Verdana" !important;
-  font-family: Verdana, sans-serif !important;
+  font-family: Verdana, Geneva, sans-serif !important;
 }
 
 /* ============================================
@@ -266,13 +266,6 @@
 .ql-snow .ql-picker.ql-size .ql-picker-item[data-value="48px"]::before { content: "48px" !important; }
 .ql-snow .ql-picker.ql-size .ql-picker-label[data-value="72px"]::before,
 .ql-snow .ql-picker.ql-size .ql-picker-item[data-value="72px"]::before { content: "72px" !important; }
-
-.ql-snow .ql-picker.ql-font .ql-picker-label[data-label]::before,
-.ql-snow .ql-picker.ql-font .ql-picker-item[data-label]::before,
-.ql-snow .ql-picker.ql-size .ql-picker-label[data-label]::before,
-.ql-snow .ql-picker.ql-size .ql-picker-item[data-label]::before {
-  content: attr(data-label) !important;
-}
 
 /* Apply font sizes in editor content */
 .ql-snow .ql-editor .ql-size-10px { font-size: 10px !important; }
@@ -456,6 +449,7 @@
 /* Links */
 .ql-editor a {
   color: #4f46e5 !important;
+  cursor: pointer !important;
   text-decoration: underline !important;
   text-decoration-color: rgba(79, 70, 229, 0.3) !important;
   transition: text-decoration-color 0.2s ease !important;
@@ -616,4 +610,79 @@
 .ql-snow .ql-picker.ql-align .ql-picker-options {
   width: 48px !important;
   padding: 4px !important;
+}
+
+/* ============================================
+   CURRENT CUSTOM EDITOR OBJECTS
+   ============================================ */
+.docs-editor {
+  width: 100%;
+}
+
+.docs-editor .ql-container.ql-snow {
+  min-height: calc(100vh - 180px);
+}
+
+.ql-editor .ql-editor-object {
+  margin: 10px 12px 10px 0;
+  max-width: 100%;
+  cursor: move;
+  border: 1px solid transparent;
+  border-radius: 8px;
+}
+
+.ql-editor .ql-editor-object.is-selected {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.16);
+}
+
+.ql-editor .ql-editor-object img,
+.ql-editor .ql-editor-object video,
+.ql-editor .ql-editor-object svg {
+  max-width: 100%;
+  border-radius: 6px;
+}
+
+.ql-editor .ql-resize-handle {
+  position: absolute;
+  z-index: 20;
+  display: none;
+  width: 10px;
+  height: 10px;
+  border: 1px solid #2563eb;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.2);
+  transform: translate(-50%, -50%);
+}
+
+.ql-editor .ql-editor-object.is-selected .ql-resize-handle {
+  display: block;
+}
+
+.ql-editor .ql-resize-n,
+.ql-editor .ql-resize-s {
+  cursor: ns-resize;
+}
+
+.ql-editor .ql-resize-e,
+.ql-editor .ql-resize-w {
+  cursor: ew-resize;
+}
+
+.ql-editor .ql-resize-nw,
+.ql-editor .ql-resize-se {
+  cursor: nwse-resize;
+}
+
+.ql-editor .ql-resize-ne,
+.ql-editor .ql-resize-sw {
+  cursor: nesw-resize;
+}
+
+@media (max-width: 640px) {
+  .ql-editor {
+    min-height: calc(100vh - 180px) !important;
+    padding: 40px 28px !important;
+  }
 }

@@ -3,79 +3,89 @@ import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
 import Document from "../models/DocumentModel.js";
 import User from "../models/UserModel.js";
-import Version from "../models/VersionModel.js";
+import { createVersionIfChanged } from "../utils/versionHistory.js";
 
-const userCanAccessDocument = (document, userId) => {
+const roomUsers = new Map();
+
+const canAccessDocument = (document, userId) => {
   if (!document || !userId) return false;
 
-  const normalizedUserId = userId.toString();
-  const isOwner = document.owner?.toString() === normalizedUserId;
-  const isCollaborator = document.collaborators.some(
-    (collaboratorId) => collaboratorId.toString() === normalizedUserId
-  );
+  const currentUserId = userId.toString();
+  const isOwner = document.owner?.toString() === currentUserId;
+  const isCollaborator = document.collaborators?.some((collaboratorId) => collaboratorId.toString() === currentUserId);
 
   return isOwner || isCollaborator;
 };
 
+const getActiveUsers = (documentId) => {
+  const users = roomUsers.get(documentId);
+  if (!users) return [];
+
+  const uniqueUsers = new Map();
+  users.forEach((user) => {
+    if (user?.id) uniqueUsers.set(user.id, user);
+  });
+
+  return Array.from(uniqueUsers.values());
+};
+
+const addActiveUser = (documentId, socket) => {
+  if (!roomUsers.has(documentId)) {
+    roomUsers.set(documentId, new Map());
+  }
+
+  roomUsers.get(documentId).set(socket.id, {
+    id: socket.user._id.toString(),
+    username: socket.user.username,
+    email: socket.user.email,
+  });
+};
+
+const removeActiveUser = (documentId, socket) => {
+  const users = roomUsers.get(documentId);
+  if (!users) return;
+
+  users.delete(socket.id);
+  if (users.size === 0) {
+    roomUsers.delete(documentId);
+  }
+};
+
+const leaveDocumentRoom = (io, socket) => {
+  const documentId = socket.data.documentId;
+  if (!documentId) return;
+
+  removeActiveUser(documentId, socket);
+  socket.leave(documentId);
+  socket.to(documentId).emit("active-users", getActiveUsers(documentId));
+  socket.data.documentId = null;
+};
+
+const authenticateSocket = async (socket) => {
+  const cookies = cookie.parse(socket.handshake.headers.cookie || "");
+  const token = cookies.token;
+
+  if (!token) return null;
+
+  const decoded = jwt.verify(token, process.env.JWT_SECRET);
+  return User.findById(decoded.userId).select("-password");
+};
+
 const documentSocket = (io) => {
-  const emitActiveUsers = (documentId, excludeSocketId = null) => {
-    const room = io.sockets.adapter.rooms.get(documentId);
-    const uniqueUsers = new Map();
-
-    if (room) {
-      room.forEach((socketId) => {
-        if (socketId === excludeSocketId) return;
-
-        const roomSocket = io.sockets.sockets.get(socketId);
-        const roomUser = roomSocket?.user;
-
-        if (roomUser?._id) {
-          uniqueUsers.set(roomUser._id.toString(), {
-            id: roomUser._id,
-            username: roomUser.username,
-            email: roomUser.email,
-          });
-        }
-      });
-    }
-
-    io.to(documentId).emit("active-users", Array.from(uniqueUsers.values()));
-  };
-
-  const leaveJoinedDocuments = (socket) => {
-    socket.joinedDocuments.forEach((joinedDocumentId) => {
-      socket.leave(joinedDocumentId);
-      emitActiveUsers(joinedDocumentId, socket.id);
-    });
-    socket.joinedDocuments.clear();
-  };
-
   io.on("connection", async (socket) => {
     try {
-      const cookies = cookie.parse(socket.handshake.headers.cookie || "");
-      const token = cookies.token;
-
-      if (!token) {
-        socket.disconnect(true);
-        return;
-      }
-
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      const user = await User.findById(decoded.userId).select("-password");
+      const user = await authenticateSocket(socket);
 
       if (!user) {
+        socket.emit("not-authorized");
         socket.disconnect(true);
         return;
       }
 
       socket.user = user;
-      socket.joinedDocuments = new Set();
-      console.log("User connected:", socket.id);
 
       socket.on("join-document", async (documentId) => {
         try {
-          leaveJoinedDocuments(socket);
-
           if (!mongoose.Types.ObjectId.isValid(documentId)) {
             socket.emit("document-not-found");
             return;
@@ -87,79 +97,72 @@ const documentSocket = (io) => {
             return;
           }
 
-          if (!userCanAccessDocument(document, user._id)) {
+          if (!canAccessDocument(document, socket.user._id)) {
             socket.emit("not-authorized");
             return;
           }
 
+          leaveDocumentRoom(io, socket);
           socket.join(documentId);
-          socket.joinedDocuments.add(documentId);
-          socket.emit("load-document", {
-            title: document.title || "Untitled Document",
-            content: document.content || { ops: [] },
-          });
-          emitActiveUsers(documentId);
+          socket.data.documentId = documentId;
+          addActiveUser(documentId, socket);
+
+          socket.emit("load-document", document);
+          io.to(documentId).emit("active-users", getActiveUsers(documentId));
         } catch (error) {
-          console.error("Socket join-document error:", error);
-          socket.emit("document-not-found");
+          console.error("join-document error:", error);
+          socket.emit("document-error", "Unable to join document");
         }
       });
 
       socket.on("send-changes", (delta, documentId) => {
-        if (!mongoose.Types.ObjectId.isValid(documentId)) return;
-        if (!socket.rooms.has(documentId)) return;
-        socket.to(documentId).emit("receive-changes", delta);
+        const targetDocumentId = documentId || socket.data.documentId;
+        if (!targetDocumentId) return;
+        socket.to(targetDocumentId).emit("receive-changes", delta);
       });
 
-      socket.on("typing", ({ documentId }) => {
-        if (!mongoose.Types.ObjectId.isValid(documentId)) return;
-        if (!socket.rooms.has(documentId)) return;
-        socket.to(documentId).emit("user-typing", {
-          documentId,
-          username: user.username,
+      socket.on("typing", ({ documentId, username }) => {
+        const targetDocumentId = documentId || socket.data.documentId;
+        if (!targetDocumentId) return;
+        socket.to(targetDocumentId).emit("user-typing", {
+          username: username || socket.user.username,
         });
       });
 
-      socket.on("stop-typing", ({ documentId }) => {
-        if (!mongoose.Types.ObjectId.isValid(documentId)) return;
-        if (!socket.rooms.has(documentId)) return;
-        socket.to(documentId).emit("user-stopped-typing", {
-          documentId,
-          username: user.username,
+      socket.on("stop-typing", ({ documentId, username }) => {
+        const targetDocumentId = documentId || socket.data.documentId;
+        if (!targetDocumentId) return;
+        socket.to(targetDocumentId).emit("user-stop-typing", {
+          username: username || socket.user.username,
         });
       });
 
       socket.on("save-document", async ({ documentId, content }) => {
         try {
           if (!mongoose.Types.ObjectId.isValid(documentId)) return;
-          if (!socket.rooms.has(documentId)) return;
 
           const document = await Document.findById(documentId);
-          if (!userCanAccessDocument(document, user._id)) return;
+          if (!document || !canAccessDocument(document, socket.user._id)) return;
 
           document.content = content;
           await document.save();
-          await Version.create({
+
+          await createVersionIfChanged({
             documentId,
             content,
-            editedBy: user._id,
+            editedBy: socket.user._id,
           });
-
-          socket.to(documentId).emit("document-saved", { documentId });
         } catch (error) {
-          console.error("Socket save-document error:", error);
+          console.error("save-document error:", error);
         }
       });
 
-      socket.on("disconnecting", () => {
-        leaveJoinedDocuments(socket);
-      });
-
       socket.on("disconnect", () => {
-        console.log("User disconnected:", socket.id);
+        leaveDocumentRoom(io, socket);
       });
     } catch (error) {
-      console.error("Socket authentication error:", error);
+      console.error("socket authentication error:", error);
+      socket.emit("not-authorized");
       socket.disconnect(true);
     }
   });

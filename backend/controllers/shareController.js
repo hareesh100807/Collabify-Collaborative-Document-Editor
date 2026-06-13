@@ -10,6 +10,53 @@ const hasCollaborator = (document, userId) => (
     Boolean(document?.collaborators?.some((collaboratorId) => collaboratorId.toString() === userId.toString()))
 );
 
+const sendEmailWithoutBlockingInvite = async (sendEmail) => {
+    try {
+        await sendEmail();
+    } catch (error) {
+        console.error("Invitation email failed:", error.message);
+    }
+};
+
+const syncPendingRequestsForUser = async (user) => {
+    const email = normalizeEmail(user?.email);
+    if (!email || !user?._id) return;
+
+    await ShareRequest.updateMany(
+        {
+            toUser: null,
+            toEmail: email,
+            status: 'pending'
+        },
+        { $set: { toUser: user._id } }
+    );
+
+    const legacyPendingDocuments = await Document.find({ pendingCollaborators: email }).select('_id owner');
+
+    await Promise.all(
+        legacyPendingDocuments.map(async (document) => {
+            const existingRequest = await ShareRequest.findOne({
+                document: document._id,
+                status: 'pending',
+                $or: [
+                    { toUser: user._id },
+                    { toEmail: email }
+                ]
+            });
+
+            if (!existingRequest) {
+                await ShareRequest.create({
+                    document: document._id,
+                    fromUser: document.owner,
+                    toUser: user._id,
+                    toEmail: email,
+                    status: 'pending'
+                });
+            }
+        })
+    );
+};
+
 // Add collaborator via email
 export const addCollaborator = async (req, res) => {
     try {
@@ -31,6 +78,10 @@ export const addCollaborator = async (req, res) => {
         const collaborator = await User.findOne({ email });
 
         if (collaborator) {
+            if (document.owner._id.toString() === collaborator._id.toString()) {
+                return res.status(400).json({ message: "You cannot invite yourself" });
+            }
+
             // Already a collaborator
             if (hasCollaborator(document, collaborator._id)) {
                 return res.status(400).json({ message: "User is already a collaborator" });
@@ -39,8 +90,11 @@ export const addCollaborator = async (req, res) => {
             // Check for existing pending request
             const existingRequest = await ShareRequest.findOne({
                 document: documentId,
-                toUser: collaborator._id,
-                status: 'pending'
+                status: 'pending',
+                $or: [
+                    { toUser: collaborator._id },
+                    { toEmail: email }
+                ]
             });
             
             if (existingRequest) {
@@ -57,21 +111,34 @@ export const addCollaborator = async (req, res) => {
             });
 
             // Send email
-            await sendShareNotification(email, document.owner.username, document.title);
+            await sendEmailWithoutBlockingInvite(() => sendShareNotification(email, document.owner.username, document.title));
             
             return res.status(200).json({ message: "Invitation sent! They will see it in their dashboard." });
         } else {
             // Unregistered user
-            if (document.pendingCollaborators.includes(email)) {
+            const existingRequest = await ShareRequest.findOne({
+                document: documentId,
+                toEmail: email,
+                status: 'pending'
+            });
+
+            if (existingRequest || document.pendingCollaborators.includes(email)) {
                 return res.status(400).json({ message: "Invitation already sent" });
             }
 
             document.pendingCollaborators.push(email);
             await document.save();
 
+            await ShareRequest.create({
+                document: documentId,
+                fromUser: req.user._id,
+                toEmail: email,
+                status: 'pending'
+            });
+
             // Send email
             const registerLink = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/register?next=/documents/${documentId}`;
-            await sendInviteToUnregistered(email, document.owner.username, document.title, registerLink);
+            await sendEmailWithoutBlockingInvite(() => sendInviteToUnregistered(email, document.owner.username, document.title, registerLink));
 
             return res.status(200).json({ message: "Invitation sent! They'll get access when they register." });
         }
@@ -122,9 +189,15 @@ export const removeCollaborator = async (req, res) => {
 // Get pending share requests for the logged-in user
 export const getShareRequests = async (req, res) => {
     try {
+        const email = normalizeEmail(req.user.email);
+        await syncPendingRequestsForUser(req.user);
+
         const requests = await ShareRequest.find({
-            toUser: req.user._id,
-            status: 'pending'
+            status: 'pending',
+            $or: [
+                { toUser: req.user._id },
+                { toEmail: email }
+            ]
         }).populate('document', 'title').populate('fromUser', 'username email');
         
         res.status(200).json({ requests });
@@ -138,18 +211,26 @@ export const getShareRequests = async (req, res) => {
 export const acceptShareRequest = async (req, res) => {
     try {
         const { requestId } = req.params;
+        const email = normalizeEmail(req.user.email);
         const request = await ShareRequest.findById(requestId);
         
-        if (!request || request.status !== 'pending' || request.toUser.toString() !== req.user._id.toString()) {
+        const isTargetUser = request?.toUser?.toString() === req.user._id.toString();
+        const isTargetEmail = normalizeEmail(request?.toEmail) === email;
+
+        if (!request || request.status !== 'pending' || (!isTargetUser && !isTargetEmail)) {
             return res.status(404).json({ message: "Request not found or unauthorized" });
         }
         
         const document = await Document.findById(request.document);
         if (document && !hasCollaborator(document, req.user._id)) {
             document.collaborators.push(req.user._id);
+            document.pendingCollaborators = document.pendingCollaborators.filter(
+                (pendingEmail) => normalizeEmail(pendingEmail) !== email
+            );
             await document.save();
         }
         
+        request.toUser = req.user._id;
         request.status = 'accepted';
         await request.save();
         
@@ -164,18 +245,29 @@ export const acceptShareRequest = async (req, res) => {
 export const rejectShareRequest = async (req, res) => {
     try {
         const { requestId } = req.params;
+        const email = normalizeEmail(req.user.email);
         const request = await ShareRequest.findById(requestId).populate('fromUser').populate('document');
         
-        if (!request || request.status !== 'pending' || request.toUser.toString() !== req.user._id.toString()) {
+        const isTargetUser = request?.toUser?.toString() === req.user._id.toString();
+        const isTargetEmail = normalizeEmail(request?.toEmail) === email;
+
+        if (!request || request.status !== 'pending' || (!isTargetUser && !isTargetEmail)) {
             return res.status(404).json({ message: "Request not found or unauthorized" });
         }
         
+        if (request.document?._id) {
+            await Document.findByIdAndUpdate(request.document._id, {
+                $pull: { pendingCollaborators: email }
+            });
+        }
+
+        request.toUser = req.user._id;
         request.status = 'rejected';
         await request.save();
         
         // Notify owner
         if (request.fromUser && request.document) {
-            await sendRejectionNotification(request.fromUser.email, req.user.username, request.document.title);
+            await sendEmailWithoutBlockingInvite(() => sendRejectionNotification(request.fromUser.email, req.user.username, request.document.title));
         }
         
         res.status(200).json({ message: "Invitation rejected" });
