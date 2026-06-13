@@ -5,6 +5,23 @@ import { OAuth2Client } from 'google-auth-library';
 
 const googleClientId = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID;
 const client = new OAuth2Client(googleClientId);
+const isProductionCookie =
+  process.env.NODE_ENV === 'production' ||
+  process.env.RENDER === 'true' ||
+  process.env.FRONTEND_URL?.startsWith('https://');
+
+const authCookieOptions = {
+  httpOnly: true,
+  secure: isProductionCookie,
+  sameSite: isProductionCookie ? 'none' : 'lax',
+  maxAge: 7 * 24 * 60 * 60 * 1000,
+};
+
+const clearAuthCookieOptions = {
+  httpOnly: true,
+  secure: isProductionCookie,
+  sameSite: isProductionCookie ? 'none' : 'lax',
+};
 
 const normalizeUsernameSeed = (value) =>
   String(value || "")
@@ -92,11 +109,7 @@ export const googleAuth = async (req, res) => {
     }
     const token = jwt.sign({ userId: user._id },process.env.JWT_SECRET,{ expiresIn: '7d' });
 
-    res.cookie('token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
-    });
+    res.cookie('token', token, authCookieOptions);
 
     res.status(200).json({
       message: 'Google Login successful',
@@ -138,7 +151,7 @@ export const register = async (req, res) => {
   //generate jwt token
     const token = jwt.sign({ userId: newUser._id }, process.env.JWT_SECRET, { expiresIn: '7d' });
     //send cookie
-    res.cookie('token', token, { httpOnly: true, secure: false, sameSite: 'lax', maxAge: 7 * 24 * 60 * 60 * 1000 });
+    res.cookie('token', token, authCookieOptions);
     res.status(201).json({ message: 'User registered successfully', payload: { username: newUser.username, id: newUser._id, email: newUser.email } });
   } catch (error) {
     console.error('Error registering user:', error);
@@ -172,12 +185,7 @@ export const login = async (req, res) => {
     // 4. Generate token
     const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET,{ expiresIn: '7d' });
     // 5. Send cookie
-    res.cookie('token', token, {
-      httpOnly: true,
-      secure: false,
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
-    });
+    res.cookie('token', token, authCookieOptions);
     // 6. Response
     res.status(200).json({
       message: 'Login successful',
@@ -194,11 +202,7 @@ export const login = async (req, res) => {
 };
 
 export const logout = (req, res) => {
-  res.clearCookie('token', {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
-  });
+  res.clearCookie('token', clearAuthCookieOptions);
   res.status(200).json({ message: 'Logout successful' });
 };
 
