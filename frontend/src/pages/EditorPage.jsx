@@ -1253,12 +1253,10 @@ const EditorPage = () => {
 
       event.preventDefault();
       event.stopPropagation();
+      event.stopImmediatePropagation();
 
       const href = new URL(link.getAttribute("href"), window.location.href).href;
-      const openedWindow = window.open(href, "_blank", "noopener,noreferrer");
-      if (!openedWindow) {
-        window.location.href = href;
-      }
+      window.open(href, "_blank", "noopener,noreferrer");
     };
 
     quill.on("text-change", handleTextChange);
