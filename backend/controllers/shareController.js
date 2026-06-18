@@ -138,7 +138,7 @@ export const addCollaborator = async (req, res) => {
             });
 
             // Send email
-            const registerLink = `${getFrontendBaseUrl()}/register?next=/documents/${documentId}`;
+            const registerLink = `${getFrontendBaseUrl()}/register?next=/dashboard`;
             await sendEmailWithoutBlockingInvite(() => sendInviteToUnregistered(email, document.owner.username, document.title, registerLink));
 
             return res.status(200).json({ message: "Invitation sent! They'll get access when they register." });
@@ -167,18 +167,25 @@ export const removeCollaborator = async (req, res) => {
         }
         
         const collaborator = await User.findOne({ email });
-        
+
         if (collaborator) {
             document.collaborators = document.collaborators.filter(
                 (id) => id.toString() !== collaborator._id.toString()
             );
-        } else {
-            // Also check pending collaborators
-            document.pendingCollaborators = document.pendingCollaborators.filter(
-                (pendingEmail) => pendingEmail !== email
-            );
         }
-        
+
+        document.pendingCollaborators = document.pendingCollaborators.filter(
+            (pendingEmail) => normalizeEmail(pendingEmail) !== email
+        );
+
+        await ShareRequest.deleteMany({
+            document: documentId,
+            $or: [
+                { toEmail: email },
+                ...(collaborator ? [{ toUser: collaborator._id }] : [])
+            ]
+        });
+
         await document.save();
         res.status(200).json({ message: "Collaborator removed successfully" });
     } catch (error) {

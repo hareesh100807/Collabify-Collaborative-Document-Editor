@@ -6,6 +6,8 @@ import { handleShareLink as acceptInviteLink } from "../api/documentService";
 import PublicNavbar from "../components/PublicNavbar";
 import { useAuth } from "../context/AuthContext";
 
+const isGoogleAuthEnabled = Boolean(import.meta.env.VITE_GOOGLE_CLIENT_ID);
+
 const RegisterPage = () => {
   const [username, setUsername] = useState("");
   const [email, setEmail] = useState("");
@@ -95,7 +97,11 @@ const RegisterPage = () => {
             <div className="mb-7">
               <p className="text-sm font-semibold uppercase tracking-[0.2em] text-indigo-600">Get started</p>
               <h2 className="mt-2 text-2xl font-bold text-slate-950">Create your account</h2>
-              <p className="mt-2 text-sm text-slate-500">Use email registration or continue with Google.</p>
+              <p className="mt-2 text-sm text-slate-500">
+                {isGoogleAuthEnabled
+                  ? "Use email registration or continue with Google."
+                  : "Register with your email and password."}
+              </p>
             </div>
 
             {error && (
@@ -150,15 +156,19 @@ const RegisterPage = () => {
               {loading ? "Registering..." : "Register"}
             </button>
 
-            <div className="my-6 flex items-center gap-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
-              <span className="h-px flex-1 bg-slate-200" />
-              Or
-              <span className="h-px flex-1 bg-slate-200" />
-            </div>
+            {isGoogleAuthEnabled && (
+              <>
+                <div className="my-6 flex items-center gap-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
+                  <span className="h-px flex-1 bg-slate-200" />
+                  Or
+                  <span className="h-px flex-1 bg-slate-200" />
+                </div>
 
-            <div className="flex justify-center">
-              <GoogleLogin onSuccess={handleGoogleSuccess} onError={() => setError("Google signup failed.")} />
-            </div>
+                <div className="flex justify-center">
+                  <GoogleLogin onSuccess={handleGoogleSuccess} onError={() => setError("Google signup failed.")} />
+                </div>
+              </>
+            )}
 
             <p className="mt-7 text-center text-sm text-slate-600">
               Already have an account?{" "}

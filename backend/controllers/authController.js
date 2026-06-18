@@ -3,8 +3,6 @@ import bcrypt from 'bcrypt';
 import UserModel from '../models/UserModel.js';
 import { OAuth2Client } from 'google-auth-library';
 
-const googleClientId = process.env.GOOGLE_CLIENT_ID || process.env.VITE_GOOGLE_CLIENT_ID;
-const client = new OAuth2Client(googleClientId);
 const isProductionCookie =
   process.env.NODE_ENV === 'production' ||
   process.env.RENDER === 'true' ||
@@ -51,6 +49,11 @@ const createUniqueUsername = async ({ name, email }) => {
 export const googleAuth = async (req, res) => {
   try {
     const { credential, access_token } = req.body;
+    const googleClientId = (
+      process.env.GOOGLE_CLIENT_ID ||
+      process.env.VITE_GOOGLE_CLIENT_ID ||
+      ''
+    ).trim();
     let payload;
 
     if (!googleClientId) {
@@ -61,6 +64,7 @@ export const googleAuth = async (req, res) => {
     }
 
     if (credential) {
+      const client = new OAuth2Client(googleClientId);
       const ticket = await client.verifyIdToken({
         idToken: credential,
         audience: googleClientId,

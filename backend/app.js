@@ -21,8 +21,8 @@ app.use(
     credentials: true,
   })
 );
-//body parser
-app.use(exp.json());
+// Keep request parsing below MongoDB's 16 MB document limit.
+app.use(exp.json({ limit: "14mb" }));
 //cookie parser
 app.use(cookieParser());
 
@@ -44,6 +44,10 @@ app.use((req, res, next) => {
 app.use((err, req, res, next) => {
   console.log("error is ",err)
   console.log("Full error:", JSON.stringify(err, null, 2));
+  if (err?.type === "entity.too.large") {
+    return res.status(413).json({ message: "Document content is too large" });
+  }
+
   //ValidationError
   if (err.name === "ValidationError") {
     return res.status(400).json({ message: "error occurred", error: err.message });

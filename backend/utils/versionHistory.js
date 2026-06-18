@@ -1,6 +1,6 @@
 import Version from "../models/VersionModel.js";
 
-const getContentSignature = (content) => {
+export const getContentSignature = (content) => {
   try {
     return JSON.stringify(content ?? null);
   } catch {
@@ -23,7 +23,29 @@ export const filterDuplicateVersions = (versions = []) => {
   return filteredVersions;
 };
 
-export const createVersionIfChanged = async ({ documentId, content, editedBy }) => {
+export const createVersionIfChanged = async ({ documentId, content, editedBy, saveId }) => {
+  if (saveId) {
+    try {
+      return await Version.findOneAndUpdate(
+        { saveId },
+        {
+          $setOnInsert: {
+            documentId,
+            content,
+            editedBy,
+            saveId,
+          },
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
+    } catch (error) {
+      if (error?.code === 11000) {
+        return Version.findOne({ saveId });
+      }
+      throw error;
+    }
+  }
+
   const latestVersion = await Version.findOne({ documentId }).sort({ createdAt: -1 }).select("content");
 
   if (latestVersion && getContentSignature(latestVersion.content) === getContentSignature(content)) {

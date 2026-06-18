@@ -1,5 +1,5 @@
 /* eslint-disable react-hooks/set-state-in-effect */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlignCenter,
   AlignJustify,
@@ -29,15 +29,24 @@ import "react-quill-new/dist/quill.snow.css";
 import { useNavigate, useParams } from "react-router-dom";
 import { io } from "socket.io-client";
 import { useAuth } from "../context/AuthContext";
-import { addCollaborator, getCollaborators, getVersions, renameDocument, restoreVersion } from "../api/documentService.js";
+import {
+  addCollaborator,
+  generateShareLink,
+  getCollaborators,
+  getVersions,
+  removeCollaborator,
+  renameDocument,
+  restoreVersion,
+} from "../api/documentService.js";
 import axiosInstance from "../api/axios.js";
 
 const Quill = ReactQuill.Quill;
 const BlockEmbed = Quill.import("blots/block/embed");
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "http://localhost:4000";
-const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
-const MAX_VIDEO_SIZE = 25 * 1024 * 1024;
+const MAX_IMAGE_SIZE = 3 * 1024 * 1024;
+const MAX_VIDEO_SIZE = 6 * 1024 * 1024;
+const MAX_DOCUMENT_BYTES = 12 * 1024 * 1024;
 
 const FONT_OPTIONS = [
   { value: "", label: "Default" },
@@ -878,6 +887,17 @@ const formatFileSize = (bytes) => {
   return `${(bytes / (1024 * 1024)).toFixed(bytes >= 1024 * 1024 ? 1 : 2)} MB`;
 };
 
+const getSerializedContentSize = (content) =>
+  new Blob([JSON.stringify(content ?? null)]).size;
+
+const canInsertMediaFile = (quill, file) => {
+  const estimatedBase64Bytes = Math.ceil(file.size * 4 / 3) + 4096;
+  return getSerializedContentSize(quill.getContents()) + estimatedBase64Bytes <= MAX_DOCUMENT_BYTES;
+};
+
+const createSaveId = () =>
+  window.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
 const getVersionPreview = (content) => {
   if (!content) return "Empty document";
 
@@ -966,6 +986,12 @@ const setEditorContent = (quill, content) => {
   quill.setContents({ ops: [] }, "silent");
 };
 
+const getEntityId = (entity) => {
+  if (!entity) return "";
+  if (typeof entity === "string") return entity;
+  return entity._id || entity.id || "";
+};
+
 const ToolbarButton = ({ icon: Icon, label, active, className = "", ...props }) => (
   <button
     type="button"
@@ -1000,6 +1026,7 @@ const EditorPage = () => {
   const [saveStatus, setSaveStatus] = useState("Loading");
   const [isSaving, setIsSaving] = useState(false);
   const [documentTitle, setDocumentTitle] = useState("Untitled Document");
+  const [isDocumentOwner, setIsDocumentOwner] = useState(false);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleInput, setTitleInput] = useState("");
   const [activeUsers, setActiveUsers] = useState([]);
@@ -1011,6 +1038,9 @@ const EditorPage = () => {
   const [shareMessage, setShareMessage] = useState("");
   const [shareLoading, setShareLoading] = useState(false);
   const [copyMessage, setCopyMessage] = useState("");
+  const [shareLink, setShareLink] = useState("");
+  const [copyLoading, setCopyLoading] = useState(false);
+  const [removingCollaboratorEmail, setRemovingCollaboratorEmail] = useState("");
   const [collaboratorsList, setCollaboratorsList] = useState([]);
   const [pendingCollaboratorsList, setPendingCollaboratorsList] = useState([]);
 
@@ -1026,8 +1056,6 @@ const EditorPage = () => {
   const [versionLoading, setVersionLoading] = useState(false);
   const [versionMessage, setVersionMessage] = useState("");
   const [versionToRestore, setVersionToRestore] = useState(null);
-
-  const currentDocumentUrl = useMemo(() => window.location.href, []);
 
   const updateCurrentFormat = useCallback(() => {
     const quill = safeGetEditor(quillRef);
@@ -1045,15 +1073,19 @@ const EditorPage = () => {
         setIsSaving(true);
         if (!quiet) setSaveStatus("Saving");
         const content = quill.getContents();
+        const saveId = createSaveId();
 
         if (socket?.connected) {
-          socket.emit("save-document", { documentId, content });
+          socket.emit("save-document", { documentId, content, saveId });
         }
 
-        await axiosInstance.put(`/documents/${documentId}`, { content });
+        await axiosInstance.put(`/documents/${documentId}`, { content, saveId });
         setSaveStatus("Saved");
       } catch (error) {
         console.error("Document save failed:", error);
+        if (error.response?.status === 413) {
+          setMediaMessage("This document is too large to save. Remove one or more media items and try again.");
+        }
         setSaveStatus("Save failed");
       } finally {
         setIsSaving(false);
@@ -1065,7 +1097,7 @@ const EditorPage = () => {
   useEffect(() => {
     const socketInstance = io(BACKEND_URL, {
       withCredentials: true,
-      transports: ["websocket", "polling"],
+      transports: ["websocket"],
     });
 
     setSocket(socketInstance);
@@ -1115,6 +1147,7 @@ const EditorPage = () => {
 
         const document = response.data.document;
         setDocumentTitle(document?.title || "Untitled Document");
+        setIsDocumentOwner(getEntityId(document?.owner) === getEntityId(user));
         setEditorContent(quill, document?.content);
         window.requestAnimationFrame(() => decorateEditorObjects(quill.root));
         quill.history.clear();
@@ -1140,7 +1173,7 @@ const EditorPage = () => {
       cancelled = true;
       hasLoadedRef.current = false;
     };
-  }, [documentId]);
+  }, [documentId, user]);
 
   useEffect(() => {
     if (!socket || !documentId) return;
@@ -1152,6 +1185,7 @@ const EditorPage = () => {
       if (!quill || hasLoadedRef.current) return;
 
       setDocumentTitle(document?.title || "Untitled Document");
+      setIsDocumentOwner(getEntityId(document?.owner) === getEntityId(user));
       setEditorContent(quill, document?.content);
       window.requestAnimationFrame(() => decorateEditorObjects(quill.root));
       quill.history.clear();
@@ -1186,6 +1220,10 @@ const EditorPage = () => {
 
     const handleDocumentNotFound = () => setLoadError("Document not found.");
     const handleNotAuthorized = () => setLoadError("You are not authorized to open this document.");
+    const handleSaveError = (message) => {
+      setSaveStatus("Save failed");
+      setMediaMessage(message || "Unable to save this document.");
+    };
 
     socket.on("load-document", handleLoadDocument);
     socket.on("receive-changes", handleReceiveChanges);
@@ -1196,6 +1234,7 @@ const EditorPage = () => {
     socket.on("user-stop-typing", handleStopTyping);
     socket.on("document-not-found", handleDocumentNotFound);
     socket.on("not-authorized", handleNotAuthorized);
+    socket.on("save-error", handleSaveError);
 
     return () => {
       socket.off("load-document", handleLoadDocument);
@@ -1207,8 +1246,9 @@ const EditorPage = () => {
       socket.off("user-stop-typing", handleStopTyping);
       socket.off("document-not-found", handleDocumentNotFound);
       socket.off("not-authorized", handleNotAuthorized);
+      socket.off("save-error", handleSaveError);
     };
-  }, [documentId, socket, user?.username]);
+  }, [documentId, socket, user]);
 
   useEffect(() => {
     if (!isDocumentLoaded) return undefined;
@@ -1424,6 +1464,11 @@ const EditorPage = () => {
       event.target.value = "";
       return;
     }
+    if (!canInsertMediaFile(quill, file)) {
+      setMediaMessage("This image would make the document too large to save. Remove existing media or choose a smaller image.");
+      event.target.value = "";
+      return;
+    }
 
     const reader = new FileReader();
     reader.onload = (event) => {
@@ -1449,6 +1494,11 @@ const EditorPage = () => {
 
     if (file.size > MAX_VIDEO_SIZE) {
       setMediaMessage(`Video is too large (${formatFileSize(file.size)}). Please choose a video under ${formatFileSize(MAX_VIDEO_SIZE)}.`);
+      event.target.value = "";
+      return;
+    }
+    if (!canInsertMediaFile(quill, file)) {
+      setMediaMessage("This video would make the document too large to save. Remove existing media or choose a smaller video.");
       event.target.value = "";
       return;
     }
@@ -1543,7 +1593,11 @@ const EditorPage = () => {
   };
 
   const handleRestoreVersion = async () => {
-    if (!versionToRestore) return;
+    if (!versionToRestore || !isDocumentOwner) {
+      setVersionToRestore(null);
+      setVersionMessage("Only the document owner can restore versions.");
+      return;
+    }
 
     const quill = quillRef.current?.getEditor();
     if (!quill) return;
@@ -1572,6 +1626,11 @@ const EditorPage = () => {
   };
 
   const handleTitleSubmit = async () => {
+    if (!isDocumentOwner) {
+      setIsEditingTitle(false);
+      return;
+    }
+
     const nextTitle = titleInput.trim() || "Untitled Document";
     if (nextTitle === documentTitle) {
       setIsEditingTitle(false);
@@ -1592,11 +1651,13 @@ const EditorPage = () => {
     setIsShareModalOpen(true);
     setShareMessage("");
     setCopyMessage("");
+    setShareLink("");
 
     try {
       const data = await getCollaborators(documentId);
       setCollaboratorsList(data.collaborators || []);
       setPendingCollaboratorsList(data.pendingCollaborators || []);
+      if (typeof data.isOwner === "boolean") setIsDocumentOwner(data.isOwner);
     } catch (error) {
       console.error("Failed to load collaborators:", error);
     }
@@ -1607,15 +1668,28 @@ const EditorPage = () => {
     setCollaboratorEmail("");
     setShareMessage("");
     setCopyMessage("");
+    setShareLink("");
   };
 
   const handleCopyLink = async () => {
+    if (!isDocumentOwner) {
+      setCopyMessage("Only the document owner can create invitation links.");
+      return;
+    }
+
     try {
-      await navigator.clipboard.writeText(window.location.href);
-      setCopyMessage("Link copied");
+      setCopyLoading(true);
+      setCopyMessage("");
+      const response = shareLink ? { link: shareLink } : await generateShareLink(documentId);
+      const link = response.link;
+      setShareLink(link);
+      await navigator.clipboard.writeText(link);
+      setCopyMessage("Invitation link copied");
       window.setTimeout(() => setCopyMessage(""), 2200);
-    } catch {
-      setCopyMessage("Copy failed");
+    } catch (error) {
+      setCopyMessage(error.response?.data?.message || "Unable to create or copy the invitation link.");
+    } finally {
+      setCopyLoading(false);
     }
   };
 
@@ -1638,6 +1712,24 @@ const EditorPage = () => {
       setShareMessage(error.response?.data?.message || "Unable to add collaborator.");
     } finally {
       setShareLoading(false);
+    }
+  };
+
+  const handleRemoveCollaborator = async (email) => {
+    if (!email || !isDocumentOwner) return;
+
+    try {
+      setRemovingCollaboratorEmail(email);
+      setShareMessage("");
+      const response = await removeCollaborator(documentId, email);
+      setShareMessage(response.message || "Collaborator removed.");
+      const data = await getCollaborators(documentId);
+      setCollaboratorsList(data.collaborators || []);
+      setPendingCollaboratorsList(data.pendingCollaborators || []);
+    } catch (error) {
+      setShareMessage(error.response?.data?.message || "Unable to remove collaborator.");
+    } finally {
+      setRemovingCollaboratorEmail("");
     }
   };
 
@@ -1695,11 +1787,12 @@ const EditorPage = () => {
             ) : (
               <button
                 type="button"
+                disabled={!isDocumentOwner}
                 onClick={() => {
                   setTitleInput(documentTitle);
                   setIsEditingTitle(true);
                 }}
-                className="block max-w-[46vw] truncate rounded-lg px-2 py-1 text-left text-lg font-bold text-slate-950 transition hover:bg-slate-100 sm:max-w-md"
+                className="block max-w-[46vw] truncate rounded-lg px-2 py-1 text-left text-lg font-bold text-slate-950 transition enabled:hover:bg-slate-100 disabled:cursor-default sm:max-w-md"
                 title={documentTitle}
               >
                 {documentTitle}
@@ -1932,7 +2025,7 @@ const EditorPage = () => {
               </div>
             )}
 
-            {versionToRestore && (
+            {versionToRestore && isDocumentOwner && (
               <div className="mx-5 mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4">
                 <p className="text-sm font-semibold text-amber-900">Restore this version?</p>
                 <p className="mt-1 text-sm text-amber-800">
@@ -1979,14 +2072,16 @@ const EditorPage = () => {
                             Edited by {version.editedBy?.username || version.editedBy?.email || "Unknown user"}
                           </p>
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => setVersionToRestore(version)}
-                          disabled={versionLoading}
-                          className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-bold text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          Restore
-                        </button>
+                        {isDocumentOwner && (
+                          <button
+                            type="button"
+                            onClick={() => setVersionToRestore(version)}
+                            disabled={versionLoading}
+                            className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-bold text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            Restore
+                          </button>
+                        )}
                       </div>
                       <p className="mt-3 line-clamp-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
                         {getVersionPreview(version.content)}
@@ -2020,37 +2115,50 @@ const EditorPage = () => {
 
             <div className="space-y-5 px-5 py-5">
               <section>
-                <label className="mb-2 block text-sm font-medium text-slate-700">Copy link</label>
+                <label className="mb-2 block text-sm font-medium text-slate-700">Invitation link</label>
                 <div className="flex flex-col gap-2 sm:flex-row">
-                  <input readOnly value={currentDocumentUrl} className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-600" />
-                  <button type="button" onClick={handleCopyLink} className="rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-indigo-500/25 transition hover:from-indigo-700 hover:to-purple-700">
-                    Copy Link
+                  <input
+                    readOnly
+                    value={shareLink}
+                    placeholder={isDocumentOwner ? "Generate a secure invitation link" : "Only the owner can create invitation links"}
+                    className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-600"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleCopyLink}
+                    disabled={!isDocumentOwner || copyLoading}
+                    className="rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-indigo-500/25 transition hover:from-indigo-700 hover:to-purple-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {copyLoading ? "Generating..." : shareLink ? "Copy Link" : "Generate Link"}
                   </button>
                 </div>
                 {copyMessage && <p className="mt-2 text-sm text-emerald-600">{copyMessage}</p>}
               </section>
 
-              <section>
-                <label className="mb-2 block text-sm font-medium text-slate-700">Add collaborator</label>
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <input
-                    type="email"
-                    value={collaboratorEmail}
-                    onChange={(event) => setCollaboratorEmail(event.target.value)}
-                    placeholder="name@example.com"
-                    className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleAddCollaborator}
-                    disabled={shareLoading}
-                    className="rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-indigo-500/25 transition hover:from-indigo-700 hover:to-purple-700 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {shareLoading ? "Adding..." : "Add Collaborator"}
-                  </button>
-                </div>
-                {shareMessage && <p className="mt-2 text-sm text-slate-700">{shareMessage}</p>}
-              </section>
+              {isDocumentOwner && (
+                <section>
+                  <label className="mb-2 block text-sm font-medium text-slate-700">Add collaborator</label>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <input
+                      type="email"
+                      value={collaboratorEmail}
+                      onChange={(event) => setCollaboratorEmail(event.target.value)}
+                      placeholder="name@example.com"
+                      className="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddCollaborator}
+                      disabled={shareLoading}
+                      className="rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-indigo-500/25 transition hover:from-indigo-700 hover:to-purple-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {shareLoading ? "Adding..." : "Add Collaborator"}
+                    </button>
+                  </div>
+                </section>
+              )}
+
+              {shareMessage && <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">{shareMessage}</p>}
 
               <section>
                 <h3 className="mb-2 text-sm font-medium text-slate-700">Active collaborators</h3>
@@ -2072,9 +2180,21 @@ const EditorPage = () => {
                   <h3 className="mb-2 text-sm font-medium text-slate-700">People with access</h3>
                   <div className="max-h-36 space-y-2 overflow-y-auto">
                     {collaboratorsList.map((collaborator) => (
-                      <div key={collaborator._id || collaborator.email} className="rounded-lg border border-slate-200 px-3 py-2">
-                        <p className="text-sm font-medium text-slate-800">{collaborator.username || collaborator.email}</p>
-                        <p className="text-xs text-slate-500">{collaborator.email}</p>
+                      <div key={collaborator._id || collaborator.email} className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-slate-800">{collaborator.username || collaborator.email}</p>
+                          <p className="truncate text-xs text-slate-500">{collaborator.email}</p>
+                        </div>
+                        {isDocumentOwner && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveCollaborator(collaborator.email)}
+                            disabled={removingCollaboratorEmail === collaborator.email}
+                            className="shrink-0 rounded-lg px-2.5 py-1.5 text-xs font-bold text-red-600 transition hover:bg-red-50 disabled:opacity-50"
+                          >
+                            {removingCollaboratorEmail === collaborator.email ? "Removing..." : "Remove"}
+                          </button>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -2091,9 +2211,19 @@ const EditorPage = () => {
                           <p className="truncate text-sm font-medium text-amber-950">{collaborator.username || collaborator.email}</p>
                           {collaborator.username && <p className="truncate text-xs text-amber-800">{collaborator.email}</p>}
                         </div>
-                        <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-[11px] font-bold text-amber-700 ring-1 ring-amber-200">
-                          Pending
-                        </span>
+                        <div className="flex shrink-0 items-center gap-2">
+                          <span className="rounded-full bg-white px-2 py-0.5 text-[11px] font-bold text-amber-700 ring-1 ring-amber-200">
+                            Pending
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveCollaborator(collaborator.email)}
+                            disabled={removingCollaboratorEmail === collaborator.email}
+                            className="rounded-lg px-2 py-1 text-xs font-bold text-red-600 transition hover:bg-red-100 disabled:opacity-50"
+                          >
+                            {removingCollaboratorEmail === collaborator.email ? "..." : "Cancel"}
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>

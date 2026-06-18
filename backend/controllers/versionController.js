@@ -10,6 +10,11 @@ const canAccessDocument = (document, userId) => {
     return isOwner || isCollaborator;
 };
 
+export const isDocumentOwner = (document, userId) => {
+    if (!document?.owner || !userId) return false;
+    return document.owner.toString() === userId.toString();
+};
+
 // Get version history for a document
 export const getVersions= async (req, res) => {
     try{
@@ -45,8 +50,8 @@ export const restoreVersion = async (req, res) => {
         if (!document) {
             return res.status(404).json({ message: 'Document not found' });
         }
-        if (!canAccessDocument(document, req.user._id)) {
-            return res.status(403).json({ message: 'Access denied' });
+        if (!isDocumentOwner(document, req.user._id)) {
+            return res.status(403).json({ message: 'Only the document owner can restore versions' });
         }
         // Update document content
         document.content = version.content;

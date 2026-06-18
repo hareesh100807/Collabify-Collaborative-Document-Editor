@@ -16,6 +16,12 @@ const versionSchema = new Schema({
         type: Schema.Types.ObjectId,
         ref: 'User',
         required: true
+    },
+    saveId: {
+        type: String,
+        unique: true,
+        sparse: true,
+        index: true
     }
 }, {timestamps: true});
 
